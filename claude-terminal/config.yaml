@@ -1,0 +1,101 @@
+---
+name: "Claude Code for Home Assistant"
+description: "Community add-on (not affiliated with Anthropic or Home Assistant): the Claude Code CLI in a browser terminal, with persistent packages, image paste, and Home Assistant MCP auto-wiring."
+version: "4.7.0"
+slug: "claude_terminal_unsnow"
+init: false
+
+# Supported architectures
+arch:
+  - aarch64
+  - amd64
+
+# External resources
+url: "https://github.com/unsnow-iac/claude-code-ha"
+
+# Web interface configuration
+ingress: true
+ingress_port: 7680
+panel_icon: mdi:code-braces-box
+panel_title: "Claude Code"
+
+# Port configuration
+# Default to NOT exposing these on the host network: the add-on is meant to be
+# used through the authenticated Home Assistant ingress panel above. ttyd runs
+# `--writable` with no credentials, so a host-mapped port would be an
+# unauthenticated root shell reachable by anyone on the LAN. Both default to
+# `null` (not exposed); an advanced user can still assign a host port from the
+# add-on's Network panel if they accept that risk.
+ports:
+  7680/tcp: null
+  7681/tcp: null
+ports_description:
+  7680/tcp: "Optional direct web interface — UNAUTHENTICATED. Leave unset; use the ingress panel."
+  7681/tcp: "Optional direct ttyd terminal — UNAUTHENTICATED. Leave unset; use the ingress panel."
+
+# Add-on configuration options
+# (use_persistent_claude / auto_update_claude_on_start removed: that layer
+#  targeted an obsolete cli.js path and fought the baked-binary model. Claude
+#  updates are delivered by bumping CLAUDE_VERSION and rebuilding the add-on.)
+#
+# Home Assistant MCP (ha-mcp) auto-wiring:
+#   enable_home_assistant_mcp — master switch (default true). When on AND a URL is
+#     set, the add-on registers the `homeassistant-ai/ha-mcp` server with Claude Code
+#     on boot so the terminal opens already connected (structured entity/service/
+#     config control via its `ha_*` tools). Set false to never touch Claude's MCP config.
+#   home_assistant_mcp_url — the ha-mcp server URL. Install the separate
+#     "Home Assistant MCP Server" add-on, then copy the full URL it prints in its log
+#     (e.g. http://<host>:9583/private_<secret>) and paste it here. The secret path IS
+#     the credential — no token is needed. EMPTY = no-op: the add-on touches nothing,
+#     so an existing manual wiring is left exactly as-is.
+#
+# enable_onboarding_hint — master switch (default true). Seeds a short add-on-owned
+#   orientation note into the USER-level Claude memory ($HOME/.claude/CLAUDE.md, which
+#   Claude merges with your project /config/CLAUDE.md). It NEVER reads or writes your
+#   /config files — only a marker-delimited block in the add-on's own home dir. Set
+#   false to remove that block.
+options:
+  auto_launch_claude: true
+  dangerously_skip_permissions: false
+  enable_home_assistant_mcp: true
+  home_assistant_mcp_url: ""
+  enable_onboarding_hint: true
+  persistent_apk_packages: []
+  persistent_pip_packages: []
+
+schema:
+  auto_launch_claude: bool?
+  dangerously_skip_permissions: bool?
+  enable_home_assistant_mcp: bool?
+  home_assistant_mcp_url: str?
+  enable_onboarding_hint: bool?
+  persistent_apk_packages:
+    - str?
+  persistent_pip_packages:
+    - str?
+
+# Volume mappings for file access
+map:
+  - config:rw    # Access to Home Assistant configuration files
+
+# API access for Home Assistant integration
+# hassio_role is intentionally `homeassistant`, not `manager`: this add-on is a
+# full shell with arbitrary apk/pip installs, so it should carry the *smallest*
+# Supervisor token that still lets `ha core check/restart/info` work. The
+# `homeassistant` role grants exactly the `^(?:|/.+/info|/core/.+|/homeassistant/.+)$`
+# surface; `manager` additionally exposes /addons/*, /backups.*, /host/.+ and
+# /docker/.+ — broad add-on/host/backup control we deliberately drop. HA
+# *operations* (managing other add-ons, the host, backups) should go through the
+# audited Home Assistant MCP server instead — that privilege lives in the separate
+# ha-mcp add-on's own `manager` token, not ours; see the `home_assistant_mcp_url`
+# option above, which wires Claude Code to it on boot. NOTE: hassio_role is a fixed
+# manifest field users cannot raise from the HA UI; a power user who needs
+# shell-level manager access must run a local/forked copy with
+# `hassio_role: manager`. See README.md.
+hassio_api: true
+hassio_role: homeassistant
+homeassistant_api: true
+auth_api: true
+
+# Service startup configuration
+startup: services

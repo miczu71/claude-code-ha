@@ -1,0 +1,15 @@
+build_from:
+  # Alpine 3.21 ships musl 1.2.5, which exports the `statx` symbol that
+  # current Claude Code native builds require. Alpine 3.19 (musl 1.2.4) does
+  # not, so newer Claude binaries crash at launch with
+  # `Error relocating ...: statx: symbol not found`.
+  aarch64: ghcr.io/home-assistant/aarch64-base:3.21
+  amd64: ghcr.io/home-assistant/amd64-base:3.21
+
+labels:
+  org.opencontainers.image.title: "Home Assistant Add-on: Claude Code for Home Assistant"
+  org.opencontainers.image.description: "Terminal interface for Anthropic's Claude Code CLI"
+  org.opencontainers.image.source: "https://github.com/unsnow-iac/claude-code-ha"
+  org.opencontainers.image.licenses: "MIT"
+
+  org.opencontainers.image.version: "4.7.0"

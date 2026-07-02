@@ -1,0 +1,39 @@
+# Home Assistant Add-on .gitignore
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+# NOTE: package-lock.json is intentionally committed — the image-service is built
+# with `npm ci` for reproducible, Dependabot-scannable installs. Do not re-ignore.
+yarn.lock
+
+# Logs
+*.log
+
+# Build files
+build/
+dist/
+
+# Temporary files
+.tmp/
+.temp/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Local test-mount dir (run-addon mounts ./config -> /config); not part of the add-on
+/config/

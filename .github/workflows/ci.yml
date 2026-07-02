@@ -1,0 +1,153 @@
+name: CI
+
+# Runs on every pull request and on pushes to main. The goal is to catch the
+# kind of breakage this fork exists to prevent — a Dockerfile that no longer
+# builds, a malformed add-on manifest, or a shell script with a syntax error —
+# *before* it ships and bricks the add-on on someone's Home Assistant.
+#
+# The checks are split into independent jobs so they run in parallel and each
+# reports on its own — a failure in one doesn't hide the results of the others.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hadolint:
+    name: Lint Dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Intentional rule exceptions live in .hadolint.yaml at the repo root.
+      - name: Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: claude-terminal/Dockerfile
+          config: .hadolint.yaml
+
+  shellcheck:
+    name: Lint shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `-s bash` forces bash parsing so the `#!/usr/bin/with-contenv bashio`
+      # shebang on the add-on scripts doesn't trip "unsupported shebang".
+      # severity:error means only real bugs fail — not the many intentional
+      # unquoted expansions in these scripts.
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        env:
+          SHELLCHECK_OPTS: -s bash
+        with:
+          severity: error
+
+  addon-lint:
+    name: Lint add-on manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Validates config.yaml / build.yaml against Home Assistant's schema —
+      # catches a bad version, missing field, or invalid option type that would
+      # otherwise only surface in the HA add-on store.
+      - name: Home Assistant add-on linter
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: ./claude-terminal
+
+  version-sync:
+    name: Check version sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The add-on version in config.yaml and the image label in build.yaml must
+      # stay in sync (a repo invariant). Cheap guard against a half-done bump.
+      - name: config.yaml version == build.yaml label
+        run: |
+          cfg=$(grep -oP '^version:\s*"\K[^"]+' claude-terminal/config.yaml)
+          lbl=$(grep -oP 'org\.opencontainers\.image\.version:\s*"\K[^"]+' claude-terminal/build.yaml)
+          echo "config.yaml version: $cfg"
+          echo "build.yaml  label  : $lbl"
+          if [ "$cfg" != "$lbl" ]; then
+            echo "::error::Version mismatch — bump both config.yaml and build.yaml together."
+            exit 1
+          fi
+
+  build:
+    name: Build & smoke-test image (amd64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Build against the real Alpine 3.21 base, exactly as the HA builder would,
+      # to prove the image still builds. amd64 only (native, fast, reliable);
+      # arm builds would need slow QEMU emulation and can be added later.
+      # `load: true` loads the result into the local Docker daemon so the smoke
+      # steps below can actually run it — a plain build proves it compiles, but
+      # only running it catches the class of failure this fork exists to fix.
+      - name: Build amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./claude-terminal
+          build-args: |
+            BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.21
+          push: false
+          load: true
+          tags: local/claude-terminal:ci
+
+      # THE reason this job runs the image. The bug this fork exists to fix is a
+      # runtime dynamic-linker crash — `Error relocating ...: statx: symbol not
+      # found` — that a plain build cannot see because it only fires when the
+      # native binary is *executed* under the base image's musl. Exec the baked
+      # binary directly (bypassing s6/run.sh) and require a clean `--version`.
+      # A full-boot /health probe would NOT catch this: the container stays up
+      # even when the claude session dies, so we must run the binary itself.
+      - name: Smoke test — Claude binary launches (statx-class guard)
+        run: |
+          set -o pipefail
+          out=$(timeout 60 docker run --rm \
+            --entrypoint claude \
+            -e HOME=/tmp -e DISABLE_AUTOUPDATER=1 \
+            local/claude-terminal:ci --version 2>&1) || {
+            echo "::error::Claude binary failed to launch — see output below"
+            echo "$out"
+            exit 1
+          }
+          echo "claude --version → $out"
+          # Belt-and-suspenders: fail even if the loader exits 0 but warns.
+          case "$out" in
+            *"symbol not found"*|*"Error relocating"*)
+              echo "::error::Dynamic-linker relocation error (statx-class crash)"
+              exit 1 ;;
+          esac
+
+      # Full boot: prove run.sh comes up under the container's init and the
+      # image-service serves /health (port 7680). Catches a run.sh that aborts
+      # on boot or a broken image-service — failures a static build misses.
+      - name: Smoke test — container boots and /health responds
+        run: |
+          docker run -d --name cc-smoke -p 7680:7680 \
+            -v "${RUNNER_TEMP}/cc-smoke-config:/config" \
+            local/claude-terminal:ci
+          # Generous window: run.sh runs a network health check (several curls,
+          # ~15s max each) *before* it starts the image-service, so allow ~90s.
+          ok=0
+          for i in $(seq 1 45); do
+            if curl -fsS http://localhost:7680/health >/dev/null 2>&1; then
+              echo "Health OK after $((i * 2))s: $(curl -fsS http://localhost:7680/health)"
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          echo "=== container logs ==="
+          docker logs cc-smoke 2>&1 || true
+          docker rm -f cc-smoke >/dev/null 2>&1 || true
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::image-service /health never became ready within 90s"
+            exit 1
+          fi
