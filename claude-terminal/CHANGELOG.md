@@ -7,6 +7,13 @@ All notable changes to this add-on are documented here. The format is based on
 
 ## Unreleased
 
+## 5.0.1 — 2026-07-03
+
+### ⬆️ Claude Code 2.1.198 → 2.1.200
+- Bumped the baked Claude Code CLI to `2.1.200`. Delivered by rebuilding the
+  add-on image — update/rebuild from the HA add-on store to apply.
+
+
 ## 5.0.0 — 2026-07-02
 
 ### 🔒 Security — ingress-only access (BREAKING)
