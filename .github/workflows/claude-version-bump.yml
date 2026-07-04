@@ -81,10 +81,9 @@ jobs:
               print ""
               print "## " ver " — " date
               print ""
-              print "### ⬆️ Claude Code " cur " → " lat
-              print "- Bumped the baked Claude Code CLI to `" lat "`. Delivered by rebuilding the"
-              print "  add-on image — update/rebuild from the HA add-on store to apply."
-              print ""
+              print "### ⬆️ Changed"
+              print "- Updated the bundled Claude Code CLI to `" lat "` (from `" cur "`). Delivered by"
+              print "  rebuilding the add-on image — update/rebuild from the HA store to apply."
               done = 1
               next
             }
@@ -123,7 +122,6 @@ jobs:
             ### To ship it
             1. Review the diff below.
             2. Merge this PR.
-            3. Tag `v${{ steps.bump.outputs.newaddon }}` on `main` and publish a GitHub Release (per the **Release standard** in `CLAUDE.md`).
-            4. **Update/Rebuild the add-on** from the Home Assistant add-on store — that's what actually delivers the new Claude binary (updates are not applied inside the running container).
+            3. **Update/Rebuild the add-on** from the Home Assistant add-on store — that's what actually delivers the new Claude binary (updates are not applied inside the running container).
 
-            > CI runs automatically on this PR when the repo secret `BUMP_PAT` is configured (a fine-grained PAT with Contents + Pull requests write). If it isn't set yet, this PR is opened with the default workflow token, which doesn't trigger CI — close/reopen it or push an empty commit to run the checks.
+            > Merging is all it takes to release: `auto-tag.yml` tags `v${{ steps.bump.outputs.newaddon }}` on `main`, which triggers `release.yml` to publish the GitHub Release automatically (per the **Release standard** in `CLAUDE.md`). No manual tagging.

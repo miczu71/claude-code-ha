@@ -1,0 +1,75 @@
+name: Auto-tag release
+
+# Turns "the add-on version increased on main" into a published GitHub Release
+# with no manual step. When a push to main changes claude-terminal/config.yaml,
+# this reads the version and, if no matching vX.Y.Z tag exists yet, creates an
+# annotated tag and pushes it. That tag push triggers release.yml, which extracts
+# the CHANGELOG section and publishes the Release. So merging any version-bumping
+# PR — a weekly Claude bump, a feature release — is all it takes to ship a Release,
+# and the GitHub "latest" can never drift from what the HA store actually shipped.
+#
+# Why BUMP_PAT and not the built-in token: a tag pushed with the default
+# GITHUB_TOKEN does NOT trigger other workflows (GitHub's anti-recursion guard),
+# so release.yml would never fire. Pushing as a user PAT makes it a "real" push.
+# This is the same BUMP_PAT the Claude bump workflow already uses so its PRs run
+# CI. We fail loudly if it is missing rather than fall back to the default token,
+# because a silent fallback would push a tag that publishes nothing — recreating
+# exactly the drift this workflow exists to remove.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - claude-terminal/config.yaml
+
+# Only needs to push the tag.
+permissions:
+  contents: write
+
+# Never let two pushes race to create the same tag.
+concurrency:
+  group: auto-tag
+  cancel-in-progress: false
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require BUMP_PAT
+        env:
+          BUMP_PAT: ${{ secrets.BUMP_PAT }}
+        run: |
+          if [ -z "$BUMP_PAT" ]; then
+            echo "::error::BUMP_PAT is not set. A tag pushed with the default GITHUB_TOKEN will not trigger release.yml, so the Release would never publish. Add a fine-grained PAT (Contents: Read/Write) as the repo secret BUMP_PAT."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Push the tag authenticated as the PAT so the tag-push triggers
+          # release.yml. Full history + tags so the existence check below sees
+          # every tag and the annotated tag points at the real commit.
+          token: ${{ secrets.BUMP_PAT }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Tag the version if not already tagged
+        run: |
+          version=$(grep -oP '^version:\s*"\K[^"]+' claude-terminal/config.yaml)
+          if [ -z "$version" ]; then
+            echo "::error::Could not read version from claude-terminal/config.yaml"
+            exit 1
+          fi
+          tag="v${version}"
+          # Idempotent: a non-version edit to config.yaml, or a workflow re-run,
+          # must not try to recreate an existing tag.
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "Tag ${tag} already exists — nothing to do."
+            exit 0
+          fi
+          git config user.name "unsnow-iac"
+          git config user.email "unsnow@pm.me"
+          git tag -a "${tag}" -m "${tag}"
+          git push origin "${tag}"
+          echo "Created and pushed ${tag} — release.yml will publish the Release."
