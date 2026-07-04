@@ -85,12 +85,14 @@ detects updates by the number increasing, so a downgrade can hide an update.
 
 ### Cadence — release as needed, batched
 
-Cut a release when either (a) the weekly `claude-version-bump.yml` PR lands
-(a PATCH), or (b) enough user-meaningful change has accumulated under
-`## Unreleased` to be worth shipping. There is **no calendar obligation** — the
-auto-bump workflow supplies a natural heartbeat, and the store only ever offers
-the latest version, so micro-bumps just add changelog noise. Batch related PRs
-under one bump.
+A release is cut **automatically** whenever a version bump lands on `main` —
+either (a) the weekly `claude-version-bump.yml` PR (a PATCH), or (b) a release PR
+you open once enough user-meaningful change has accumulated under `## Unreleased`.
+There is **no calendar obligation and no manual tagging step**: `auto-tag.yml`
+tags the new version and `release.yml` publishes it, so merging the bump *is* the
+ship decision. Batch related feature work under `## Unreleased` and bump the
+version only when you're ready to ship — the store only ever offers the latest
+version, so the weekly PATCH cadence costs nothing but a changelog entry.
 
 ### Changelog — Keep a Changelog
 
@@ -115,11 +117,12 @@ unchanged. No AI-attribution trailers (global hygiene).
 3. Set `version:` in `config.yaml` **and** the label in `build.yaml` (CI enforces
    they match); date the changelog section.
 4. Land it via a release branch + PR (never straight to `main`).
-5. After merge, tag `vX.Y.Z` (annotated) on `main` and push the tag. The
-   **`release.yml`** workflow then publishes the **GitHub Release** automatically,
-   using that version's `CHANGELOG.md` section as the notes (it refuses to publish
-   if the tag doesn't match `config.yaml`). This is what the repo homepage reads as
-   "latest" — you only decide when and what to tag.
+5. After merge, tagging and publishing are **automatic**: **`auto-tag.yml`** sees
+   the higher `version:` on `main` and pushes the annotated `vX.Y.Z` tag, which
+   triggers **`release.yml`** to publish the **GitHub Release** from that version's
+   `CHANGELOG.md` section (it refuses to publish if the tag doesn't match
+   `config.yaml`). You never tag by hand — merging the version bump *is* the
+   release. (A manually pushed tag still works if you ever need one.)
 
 ## Invariants — don't regress these
 
@@ -188,9 +191,15 @@ GitHub Actions in `.github/workflows/`:
   repo setting *Actions → General → "Allow GitHub Actions to create and approve
   pull requests"* (already enabled).
 - **`claude.yml`** — the `@claude` responder for issues/PRs (unchanged).
-- **`release.yml`** — triggered by pushing a `vX.Y.Z` tag. Extracts that version's
-  `CHANGELOG.md` section and publishes it as a GitHub Release (after checking the
-  tag matches `config.yaml`). Automates step 5 of the release procedure.
+- **`auto-tag.yml`** — on every push to `main` that changes `config.yaml`, creates
+  and pushes the annotated `vX.Y.Z` tag if the version increased (idempotent; skips
+  if the tag already exists). Pushes as `BUMP_PAT` so the tag triggers `release.yml`,
+  and fails loudly if that secret is missing. This is what makes merging a version
+  bump auto-release.
+- **`release.yml`** — triggered by pushing a `vX.Y.Z` tag (by `auto-tag.yml`, or a
+  manual push). Extracts that version's `CHANGELOG.md` section and publishes it as a
+  GitHub Release (after checking the tag matches `config.yaml`). Automates step 5 of
+  the release procedure.
 
 All third-party actions are **pinned to a full commit SHA** with a `# vX.Y.Z`
 comment; Dependabot (`github-actions` ecosystem) keeps the SHA and comment current.
