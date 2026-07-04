@@ -1,11 +1,12 @@
 name: Release
 
-# Publishes a GitHub Release when a version tag is pushed. This closes the manual
-# gap in the release procedure (CLAUDE.md): after you merge a release PR and push
-# an annotated `vX.Y.Z` tag, this extracts that version's CHANGELOG section and
-# publishes it as the Release notes — which is what the repo homepage reads as
-# "latest". The human still decides WHEN and WHAT to tag; this only automates the
-# copy-paste.
+# Publishes a GitHub Release when a version tag is pushed. Tagging itself is
+# automatic: auto-tag.yml creates and pushes `vX.Y.Z` whenever the add-on version
+# in config.yaml increases on `main` (a merged bump/feature PR), and that tag push
+# triggers this workflow. It extracts that version's CHANGELOG section and publishes
+# it as the Release notes — which is what the repo homepage reads as "latest". So
+# merging a version bump is all it takes to release; a manually pushed tag also
+# works and lands here the same way.
 on:
   push:
     tags:
