@@ -7,6 +7,12 @@ All notable changes to this add-on are documented here. The format is based on
 
 ## Unreleased
 
+## 5.0.3 — 2026-07-20
+
+### ⬆️ Changed
+- Updated the bundled Claude Code CLI to `2.1.215` (from `2.1.204`). Delivered by
+  rebuilding the add-on image — update/rebuild from the HA store to apply.
+
 ## 5.0.2 — 2026-07-08
 
 ### ⬆️ Changed
