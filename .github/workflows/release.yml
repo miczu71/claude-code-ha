@@ -1,31 +1,57 @@
 name: Release
 
-# Publishes a GitHub Release when a version tag is pushed. Tagging itself is
-# automatic: auto-tag.yml creates and pushes `vX.Y.Z` whenever the add-on version
-# in config.yaml increases on `main` (a merged bump/feature PR), and that tag push
-# triggers this workflow. It extracts that version's CHANGELOG section and publishes
-# it as the Release notes — which is what the repo homepage reads as "latest". So
-# merging a version bump is all it takes to release; a manually pushed tag also
-# works and lands here the same way.
+# Publishes a GitHub Release for a version tag. Tagging itself is automatic:
+# auto-tag.yml creates and pushes `vX.Y.Z` whenever the add-on version in
+# config.yaml increases on `main` (a merged bump/feature PR), and that tag push
+# triggers this workflow. It extracts that version's CHANGELOG section and
+# publishes it as the Release notes — which is what the repo homepage reads as
+# "latest". So merging a version bump is all it takes to release; a manually
+# pushed tag also works and lands here the same way.
+#
+# workflow_dispatch is the recovery path. A tag ref can end up on the remote
+# without GitHub registering a workflow-triggering push event (this happened for
+# v5.0.4: auto-tag's push was rejected with "reference already exists" even
+# though the ref had been created, so this workflow never fired and the Release
+# silently never published). Running this workflow by hand with the tag name
+# republishes it without deleting and re-pushing the tag. auto-tag.yml also
+# verifies the outcome and self-heals, so this is the manual last resort.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing version tag to publish a Release for (e.g. v5.0.4)"
+        required: true
+        type: string
 
 # Only needs to create the Release.
 permissions:
   contents: write
 
+# One publish per tag at a time: the tag push and a manual dispatch (or
+# auto-tag's fallback) can otherwise collide on the same Release.
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      # On a tag push this is the tag; on a manual run it is the typed input.
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Check out the tag itself, not the default branch — a manual run must
+          # read the config.yaml and CHANGELOG *as of that release*, so the
+          # sanity check below compares like with like.
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Sanity-check tag matches the add-on version
-        env:
-          TAG: ${{ github.ref_name }}
         run: |
           version="${TAG#v}"
           cfg=$(grep -oP '^version:\s*"\K[^"]+' claude-terminal/config.yaml)
@@ -38,35 +64,31 @@ jobs:
 
       - name: Extract changelog section for this tag
         id: notes
-        env:
-          TAG: ${{ github.ref_name }}
         run: |
-          version="${TAG#v}"
-          file=claude-terminal/CHANGELOG.md
-          # Print the block from "## <version>" up to (but not including) the next
-          # "## " version header. "### " subsection headers are kept.
-          notes=$(awk -v ver="$version" '
-            $0 ~ "^## " ver "([[:space:]]|$)" { grab = 1; next }
-            grab && /^## / { exit }
-            grab { print }
-          ' "$file")
-          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
-            echo "::error::No CHANGELOG section found for $version in $file"
-            exit 1
-          fi
+          notes=$(.github/scripts/release-notes.sh "${TAG#v}")
           {
             echo "body<<CHANGELOG_EOF"
             echo "$notes"
             echo "CHANGELOG_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release
+      # Idempotent on purpose: re-running this workflow for a tag that is already
+      # released must refresh the notes, not fail. That is what makes the manual
+      # recovery path above safe to run whenever the Release looks wrong.
+      - name: Create or update the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
           BODY: ${{ steps.notes.outputs.body }}
         run: |
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$TAG" \
-            --notes "$BODY"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — updating its notes."
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" \
+              --notes "$BODY"
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" \
+              --notes "$BODY"
+          fi
