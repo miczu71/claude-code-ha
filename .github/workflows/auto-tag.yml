@@ -15,6 +15,16 @@ name: Auto-tag release
 # CI. We fail loudly if it is missing rather than fall back to the default token,
 # because a silent fallback would push a tag that publishes nothing — recreating
 # exactly the drift this workflow exists to remove.
+#
+# Why this job does not stop at "tag pushed": pushing the tag is the *means*, the
+# published Release is the *outcome*, and v5.0.4 proved they can come apart. There,
+# `git push` was rejected with "cannot lock ref: reference already exists" even
+# though the ref had in fact been created — so the job failed, a re-run saw the tag
+# and reported a green "nothing to do", and release.yml never fired because GitHub
+# had registered no tag-push event. Green workflow, tag on the remote, no Release.
+# Two guards below close that loop: the push failure is re-checked against the
+# remote instead of trusted, and the job does not finish until a Release for the
+# tag actually exists — publishing it here if the trigger never fired.
 on:
   push:
     branches:
@@ -22,7 +32,7 @@ on:
     paths:
       - claude-terminal/config.yaml
 
-# Only needs to push the tag.
+# Push the tag, and publish the Release if the fallback below has to step in.
 permissions:
   contents: write
 
@@ -54,22 +64,89 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Tag the version if not already tagged
+      - name: Read the add-on version
+        id: version
         run: |
           version=$(grep -oP '^version:\s*"\K[^"]+' claude-terminal/config.yaml)
           if [ -z "$version" ]; then
             echo "::error::Could not read version from claude-terminal/config.yaml"
             exit 1
           fi
-          tag="v${version}"
-          # Idempotent: a non-version edit to config.yaml, or a workflow re-run,
-          # must not try to recreate an existing tag.
-          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-            echo "Tag ${tag} already exists — nothing to do."
-            exit 0
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Tag the version if not already tagged
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          # The remote is the authority on whether the tag exists — a local ref
+          # could be stale, and it is the remote ref that release.yml keys on.
+          remote_sha=$(git ls-remote origin "refs/tags/${TAG}^{}" | awk '{print $1}')
+          head_sha=$(git rev-parse HEAD)
+
+          if [ -n "$remote_sha" ]; then
+            if [ "$remote_sha" = "$head_sha" ]; then
+              # Idempotent: a non-version edit to config.yaml, or a workflow
+              # re-run. Fall through — the Release check below still runs, which
+              # is what repairs a tag that exists without a Release.
+              echo "Tag ${TAG} already on origin at ${head_sha} — nothing to tag."
+              exit 0
+            fi
+            echo "::error::Tag ${TAG} already exists on origin but points at ${remote_sha}, not this commit (${head_sha}). Refusing to move a published tag — resolve by hand."
+            exit 1
           fi
+
           git config user.name "unsnow-iac"
           git config user.email "unsnow@pm.me"
-          git tag -a "${tag}" -m "${tag}"
-          git push origin "${tag}"
-          echo "Created and pushed ${tag} — release.yml will publish the Release."
+          git tag -a "${TAG}" -m "${TAG}"
+
+          # Do not trust the push's exit status alone. A push can be reported as
+          # rejected ("reference already exists") after the ref was in fact
+          # created server-side; failing here would leave a tag on the remote and
+          # a red workflow, with nobody publishing the Release. Re-check the
+          # remote and only fail if the tag is genuinely absent or wrong.
+          if git push origin "${TAG}"; then
+            echo "Created and pushed ${TAG} — release.yml should publish the Release."
+          else
+            pushed_sha=$(git ls-remote origin "refs/tags/${TAG}^{}" | awk '{print $1}')
+            if [ "$pushed_sha" = "$head_sha" ]; then
+              echo "::warning::git push reported a failure, but ${TAG} is on origin at the right commit. Continuing — the Release check below is what actually matters, and it will publish if the tag push did not trigger release.yml."
+            else
+              echo "::error::Failed to push ${TAG} (origin has '${pushed_sha:-nothing}', expected ${head_sha})."
+              exit 1
+            fi
+          fi
+
+      # The outcome that matters. Normally release.yml has already fired on the
+      # tag push and this just confirms it within a few seconds. If the trigger
+      # never fired, publish the Release here from the same CHANGELOG section, so
+      # "merge the version bump" always ends in a published Release.
+      - name: Verify the Release published — publish it if not
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for _ in $(seq 1 12); do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $TAG is published."
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "::warning::No Release for $TAG after 120s — release.yml did not fire for this tag. Publishing it here."
+          notes=$(.github/scripts/release-notes.sh "$VERSION")
+          if gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes "$notes"; then
+            echo "Published Release $TAG from the fallback."
+          # A late release.yml run can win the race between the poll above and
+          # this create; that is success, not failure.
+          elif gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG appeared while publishing — release.yml won the race."
+          else
+            echo "::error::Could not publish Release $TAG. The tag exists but no Release does — publish it by running the Release workflow manually with tag=$TAG."
+            exit 1
+          fi

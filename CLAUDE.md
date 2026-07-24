@@ -122,7 +122,10 @@ unchanged. No AI-attribution trailers (global hygiene).
    triggers **`release.yml`** to publish the **GitHub Release** from that version's
    `CHANGELOG.md` section (it refuses to publish if the tag doesn't match
    `config.yaml`). You never tag by hand — merging the version bump *is* the
-   release. (A manually pushed tag still works if you ever need one.)
+   release. (A manually pushed tag still works if you ever need one.) `auto-tag.yml`
+   doesn't stop at pushing the tag: it waits for the Release and publishes it itself
+   if the trigger didn't fire, so a green run means a Release exists. To republish
+   by hand, run the **Release** workflow with the tag name — never delete a tag.
 
 ## Invariants — don't regress these
 
@@ -195,11 +198,19 @@ GitHub Actions in `.github/workflows/`:
   and pushes the annotated `vX.Y.Z` tag if the version increased (idempotent; skips
   if the tag already exists). Pushes as `BUMP_PAT` so the tag triggers `release.yml`,
   and fails loudly if that secret is missing. This is what makes merging a version
-  bump auto-release.
+  bump auto-release. It then **verifies the outcome**: it waits for the Release to
+  appear and publishes it itself if `release.yml` never fired, so the job is green
+  only when a Release actually exists. (v5.0.4 needed this — a push rejected with
+  "reference already exists" still created the ref, so the tag landed, no push event
+  was registered, and a green re-run hid a missing Release.)
 - **`release.yml`** — triggered by pushing a `vX.Y.Z` tag (by `auto-tag.yml`, or a
   manual push). Extracts that version's `CHANGELOG.md` section and publishes it as a
   GitHub Release (after checking the tag matches `config.yaml`). Automates step 5 of
-  the release procedure.
+  the release procedure. Re-runnable: **`workflow_dispatch`** takes a tag name to
+  (re)publish without touching tags, and publishing is idempotent — an existing
+  Release has its notes updated rather than erroring.
+- **`.github/scripts/release-notes.sh`** — the single CHANGELOG-section extractor
+  both release paths call, so the notes can't differ depending on which published.
 
 All third-party actions are **pinned to a full commit SHA** with a `# vX.Y.Z`
 comment; Dependabot (`github-actions` ecosystem) keeps the SHA and comment current.
