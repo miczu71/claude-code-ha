@@ -744,7 +744,14 @@ start_ssh_server() {
     # inside a POSIX bracket expression a backslash is LITERAL, so `[^\n]` means
     # "not a backslash and not the letter n" — which silently rejected every key
     # whose comment contains an `n`, e.g. the usual `user@host` that ssh-keygen
-    # appends. Input is already one line per entry, so `.` cannot over-match.
+    # appends.
+    #
+    # LOAD-BEARING: `.` matches a newline in POSIX ERE and `$` anchors only at
+    # end-of-string, so `( .*)?$` would accept an entry with an embedded newline
+    # followed by a second key line. That is unreachable ONLY because the
+    # `while read -r key` loop below has already split input one line per entry.
+    # If that consumer ever changes to read entries whole, this regex must gain
+    # an explicit newline rejection.
     local key_re='^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh[.]com|sk-ecdsa-sha2-nistp256@openssh[.]com) [A-Za-z0-9+/]+=*( .*)?$'
 
     keys=$(bashio::config 'ssh_authorized_keys')
@@ -874,6 +881,13 @@ SSHD_EOF
     # "sshd: /usr/sbin/sshd ... [listener] ...", so BusyBox's `pgrep -x sshd`
     # matches nothing and reports a false death while SSH is working. The bound
     # socket is unambiguous and is what the user actually cares about.
+    #
+    # `pgrep sshd` is a deliberate SUBSTRING match — do not "tighten" it to -x.
+    # It matches argv[0] and so does not depend on `sshd` appearing in the config
+    # filename. The `[:.]` in the port pattern is load-bearing too: it forces the
+    # preceding character, so a listener on e.g. :12222 cannot satisfy a check
+    # for 2222. Note the pairing catches a TOTAL bind failure; if only IPv4 were
+    # squatted sshd survives on :: and this correctly reports up.
     # Both conditions: a live sshd process AND the port bound. The process alone
     # can be mid-exit; the socket alone cannot tell sshd apart from anything else
     # holding the port (in which case sshd's own bind would have failed).
