@@ -701,11 +701,17 @@ start_ssh_server() {
     mkdir -p "$ssh_dir"
     chmod 700 "$ssh_dir"
 
-    # Accepted key formats. The line MUST start with a key type, which also
-    # blocks smuggling authorized_keys options (command=, environment=, etc.)
-    # in through the add-on options. NB: keep bracket expressions backslash-free
-    # (see auto_install_packages for why that once broke a regex here).
-    local key_re='^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh[.]com|sk-ecdsa-sha2-nistp256@openssh[.]com) [A-Za-z0-9+/]+=* *[^\n]*$'
+    # Accepted key formats: <type> <base64> [optional trailing comment]. The line
+    # MUST start with a key type, which also blocks smuggling authorized_keys
+    # options (command=, environment=, etc.) in through the add-on options.
+    #
+    # NB: keep bracket expressions backslash-free (see auto_install_packages for
+    # the same trap). The comment is matched with `( .*)?$` and NOT `[^\n]*$`:
+    # inside a POSIX bracket expression a backslash is LITERAL, so `[^\n]` means
+    # "not a backslash and not the letter n" — which silently rejected every key
+    # whose comment contains an `n`, e.g. the usual `user@host` that ssh-keygen
+    # appends. Input is already one line per entry, so `.` cannot over-match.
+    local key_re='^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh[.]com|sk-ecdsa-sha2-nistp256@openssh[.]com) [A-Za-z0-9+/]+=*( .*)?$'
 
     keys=$(bashio::config 'ssh_authorized_keys')
     : > "${auth_keys}.tmp"
