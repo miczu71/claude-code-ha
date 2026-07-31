@@ -126,6 +126,16 @@ export DISABLE_AUTOUPDATER=1
 # GitHub CLI persistent configuration
 export GH_CONFIG_DIR="/data/.config/gh"
 
+# Claude permission mode, resolved from the add-on options at boot. Exported
+# here (not just in run.sh's own env) because sshd sanitises its environment
+# before running a session: without this, an SSH login would silently get a
+# different permission mode from the browser terminal. The session picker
+# reads it; IS_SANDBOX is what lets Claude accept the flag while running as root.
+export CLAUDE_DANGEROUS_MODE="$dangerously_skip_permissions"
+if [ "\$CLAUDE_DANGEROUS_MODE" = "true" ]; then
+    export IS_SANDBOX=1
+fi
+
 # Persistent package paths and native Claude binary (HIGHEST PRIORITY)
 export PATH="$PERSIST_PATHS:\$PATH"
 export LD_LIBRARY_PATH="/data/packages/lib:\${LD_LIBRARY_PATH:-}"
@@ -262,6 +272,72 @@ setup_session_picker() {
         chmod +x /opt/scripts/claude-auth-helper.sh
         bashio::log.info "Authentication helper script ready"
     fi
+}
+
+# Install the shared-session entry point and the tmux config behind it.
+#
+# Before 5.1.0 ttyd spawned `bash -c "<claude launch>"` per WebSocket connection,
+# so every reconnect started a NEW Claude process and closing the tab killed the
+# running one. tmux is now the substrate: `claude-tmux` attaches to one long-lived
+# session that outlives its clients, and the browser, SSH and `docker exec` all
+# attach to that same session. See scripts/claude-tmux.
+setup_tmux() {
+    if [ ! -f "/opt/scripts/claude-tmux" ]; then
+        bashio::log.warning "claude-tmux entry point not found; the terminal will run Claude without a persistent session"
+        return 0
+    fi
+
+    if ! cp /opt/scripts/claude-tmux /usr/local/bin/claude-tmux; then
+        bashio::log.error "Failed to install claude-tmux"
+        exit 1
+    fi
+    chmod +x /usr/local/bin/claude-tmux
+
+    # Resolve "what to launch" ONCE, here, and hand it to claude-tmux through a
+    # root-owned file in the ephemeral image filesystem (never /data, which is
+    # writable and persistent — a command string read at every session start is
+    # exactly the kind of thing that must not be user-plantable).
+    mkdir -p /etc/claude-terminal
+    chmod 755 /etc/claude-terminal
+    get_claude_launch_command > /etc/claude-terminal/launch-command
+    chmod 644 /etc/claude-terminal/launch-command
+
+    # System-wide tmux config. Users can still add their own ~/.tmux.conf —
+    # tmux reads /etc/tmux.conf first, then the user file, so these are defaults,
+    # not overrides.
+    cat > /etc/tmux.conf << 'TMUX_EOF'
+# Managed by the Claude Code add-on (run.sh). User overrides go in ~/.tmux.conf.
+
+# Size the window to the most recently active client rather than the smallest
+# one. Without this, a forgotten narrow browser tab clamps a full-width SSH
+# session down to its dimensions for as long as it stays attached.
+set -g window-size latest
+setw -g aggressive-resize on
+
+# screen-256color (not tmux-256color): its terminfo entry ships in
+# ncurses-terminfo-base, which tmux already depends on, so it is guaranteed
+# present. Requiring tmux-256color risks "missing or unsuitable terminal".
+set -g default-terminal "screen-256color"
+set -ga terminal-overrides ",*256col*:Tc"
+
+# Claude Code is a TUI: don't let tmux swallow the Escape key for half a second.
+set -sg escape-time 10
+set -g focus-events on
+set -g history-limit 50000
+
+# Mouse is deliberately OFF: enabling it routes the scroll wheel into tmux
+# copy-mode and breaks click-drag text selection in the browser terminal.
+
+# Remind a tmux newcomer how to leave without killing the session.
+set -g status-style "bg=colour236,fg=colour250"
+set -g status-left "#[bold] claude "
+set -g status-left-length 20
+set -g status-right "#[fg=colour244]Ctrl-b d to detach (session keeps running) "
+set -g status-right-length 60
+TMUX_EOF
+    chmod 644 /etc/tmux.conf
+
+    bashio::log.info "Shared tmux session entry point installed: 'claude-tmux'"
 }
 
 # Setup persistent package manager
@@ -583,6 +659,175 @@ get_claude_launch_command() {
 }
 
 
+# Start the opt-in SSH server (`enable_ssh`), landing logins in the shared
+# tmux+Claude session via claude-tmux.
+#
+# SECURITY POSTURE — read this before touching it. Through 5.0.x this add-on had
+# no `ports:` block at all, because ttyd is an unauthenticated writable root
+# shell and the only defensible answer to that is "no host port can ever exist".
+# 5.1.0 does not relax that rule: ttyd is STILL unmappable. What it adds is a
+# *separate*, key-authenticated door on its own port, held shut by three
+# independent locks:
+#   1. `enable_ssh` defaults to false — no sshd process at all.
+#   2. `2222/tcp` is declared `null` in config.yaml, so the Supervisor leaves it
+#      unmapped until the user assigns a host port in the Network panel.
+#   3. An empty/invalid `ssh_authorized_keys` means sshd does not start at all
+#      (fail closed). There is deliberately no password fallback: password,
+#      empty-password and keyboard-interactive auth are all off, so a key in
+#      that option is the ONLY way in — a misconfiguration cannot degrade into
+#      an open root shell, it can only degrade into no SSH.
+# An SSH failure must never take the add-on down: the ingress terminal is the
+# baseline and this function always returns success.
+start_ssh_server() {
+    local enabled keys ssh_dir host_key auth_keys sshd_config port=2222
+    local key_count=0 key
+
+    enabled=$(bashio::config 'enable_ssh' 'false')
+    if [ "$enabled" != "true" ]; then
+        bashio::log.info "SSH server: disabled (enable_ssh=false)"
+        return 0
+    fi
+
+    ssh_dir="/data/ssh"
+    host_key="${ssh_dir}/ssh_host_ed25519_key"
+    auth_keys="${ssh_dir}/authorized_keys"
+    sshd_config="/etc/ssh/sshd_config.addon"
+
+    if ! command -v /usr/sbin/sshd >/dev/null 2>&1; then
+        bashio::log.error "SSH server: sshd is missing from the image — rebuild the add-on. Continuing without SSH."
+        return 0
+    fi
+
+    mkdir -p "$ssh_dir"
+    chmod 700 "$ssh_dir"
+
+    # Accepted key formats. The line MUST start with a key type, which also
+    # blocks smuggling authorized_keys options (command=, environment=, etc.)
+    # in through the add-on options. NB: keep bracket expressions backslash-free
+    # (see auto_install_packages for why that once broke a regex here).
+    local key_re='^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh[.]com|sk-ecdsa-sha2-nistp256@openssh[.]com) [A-Za-z0-9+/]+=* *[^\n]*$'
+
+    keys=$(bashio::config 'ssh_authorized_keys')
+    : > "${auth_keys}.tmp"
+    chmod 600 "${auth_keys}.tmp"
+    if [ -n "$keys" ] && [ "$keys" != "null" ] && [ "$keys" != "[]" ]; then
+        while read -r key; do
+            [ -n "$key" ] || continue
+            # Trim a stray CR/space from copy-pasting out of a key file.
+            key="${key#"${key%%[![:space:]]*}"}"
+            key="${key%"${key##*[![:space:]]}"}"
+            if [[ ! "$key" =~ $key_re ]]; then
+                bashio::log.warning "SSH server: ignoring an entry in ssh_authorized_keys that is not a public key line (it must start with e.g. 'ssh-ed25519 AAAA...')"
+                continue
+            fi
+            printf '%s\n' "$key" >> "${auth_keys}.tmp"
+            key_count=$((key_count + 1))
+        done <<< "$keys"
+    fi
+
+    if [ "$key_count" -eq 0 ]; then
+        rm -f "${auth_keys}.tmp"
+        bashio::log.error "SSH server: enable_ssh is true but no valid public key is configured — refusing to start sshd."
+        bashio::log.error "SSH server: add your PUBLIC key (e.g. the contents of ~/.ssh/id_ed25519.pub) to the 'ssh_authorized_keys' option."
+        return 0
+    fi
+    mv "${auth_keys}.tmp" "$auth_keys"
+    chmod 600 "$auth_keys"
+
+    # Host key lives in /data so it survives restarts AND image rebuilds. A host
+    # key regenerated on every boot would make every client scream about a
+    # changed host key and train the user to ignore exactly the warning that
+    # detects a real man-in-the-middle.
+    if [ ! -f "$host_key" ]; then
+        bashio::log.info "SSH server: generating a persistent ed25519 host key..."
+        if ! ssh-keygen -t ed25519 -f "$host_key" -N "" -C "claude-terminal-addon" >/dev/null 2>&1; then
+            bashio::log.error "SSH server: failed to generate a host key. Continuing without SSH."
+            return 0
+        fi
+    fi
+    chmod 600 "$host_key"
+    [ -f "${host_key}.pub" ] && chmod 644 "${host_key}.pub"
+
+    # Root's password hash: force it to '*' (no valid hash => no password login).
+    # Alpine ships root as '!' (locked), which OpenSSH treats as a locked account
+    # and rejects even for key auth. '*' is not in OpenSSH's locked-account
+    # patterns, so key auth works while password auth remains impossible — which
+    # is belt-and-braces on top of PasswordAuthentication=no below.
+    sed -i 's|^root:[^:]*:|root:*:|' /etc/shadow || \
+        bashio::log.warning "SSH server: could not normalise root's shadow entry; key login may be refused"
+
+    # There is no unprivileged user to log in as: the whole container runs as
+    # root, Claude's state under /data/home is root-owned, and /config is mounted
+    # for root. A second user would be a cosmetic boundary, not a real one — so
+    # login is root, restricted to keys ('prohibit-password') and nothing else.
+    cat > "$sshd_config" << SSHD_EOF
+# Managed by the Claude Code add-on (run.sh) — regenerated on every boot.
+Port ${port}
+AddressFamily any
+HostKey ${host_key}
+
+# Key-only. Every other authentication path is off, so an empty or broken
+# authorized_keys can only mean "nobody gets in", never "anybody gets in".
+PermitRootLogin prohibit-password
+AllowUsers root
+AuthorizedKeysFile ${auth_keys}
+PubkeyAuthentication yes
+PasswordAuthentication no
+PermitEmptyPasswords no
+KbdInteractiveAuthentication no
+AuthenticationMethods publickey
+# (No UsePAM directive: Alpine's OpenSSH is built without PAM, so sshd logs
+#  "Unsupported option UsePAM" for it. There is no PAM stack to disable.)
+
+# Every login lands in the shared tmux+Claude session. claude-tmux still honours
+# \$SSH_ORIGINAL_COMMAND, so \`ssh <host> <command>\` keeps working.
+ForceCommand /usr/local/bin/claude-tmux
+
+# No tunnelling, no forwarding, no SFTP subsystem: this port exists to reach one
+# terminal session, not to become a general-purpose pivot into the HA network.
+AllowTcpForwarding no
+AllowAgentForwarding no
+AllowStreamLocalForwarding no
+GatewayPorts no
+PermitTunnel no
+X11Forwarding no
+
+# Brute-force and idle handling.
+MaxAuthTries 3
+MaxSessions 6
+MaxStartups 3:50:10
+LoginGraceTime 30
+ClientAliveInterval 30
+ClientAliveCountMax 4
+
+PrintMotd no
+StrictModes yes
+LogLevel INFO
+SSHD_EOF
+    chmod 600 "$sshd_config"
+
+    if ! /usr/sbin/sshd -t -f "$sshd_config" 2>&1; then
+        bashio::log.error "SSH server: generated sshd config failed validation. Continuing without SSH."
+        return 0
+    fi
+
+    # -D keeps sshd in the foreground so the log pipe below stays attached;
+    # -e sends its log to stderr instead of a syslog socket this container has no
+    # daemon for.
+    /usr/sbin/sshd -D -e -f "$sshd_config" 2>&1 | while IFS= read -r line; do
+        bashio::log.info "[sshd] $line"
+    done &
+
+    sleep 1
+    bashio::log.info "SSH server: listening on container port ${port} with ${key_count} authorized key(s)"
+    bashio::log.info "SSH server: map a host port to ${port}/tcp in the add-on's Network panel, then: ssh -p <host-port> root@<home-assistant-ip>"
+    local fingerprint
+    if fingerprint=$(ssh-keygen -lf "${host_key}.pub" 2>/dev/null); then
+        bashio::log.info "SSH server: host key fingerprint ${fingerprint}"
+    fi
+    return 0
+}
+
 # Start image upload service
 start_image_service() {
     local image_port=7680
@@ -649,10 +894,6 @@ start_web_terminal() {
     bashio::log.info "ANTHROPIC_CONFIG_DIR=${ANTHROPIC_CONFIG_DIR}"
     bashio::log.info "HOME=${HOME}"
 
-    # Get the appropriate launch command based on configuration
-    local launch_command
-    launch_command=$(get_claude_launch_command)
-
     # Log the configuration being used
     local auto_launch_claude
     auto_launch_claude=$(bashio::config 'auto_launch_claude' 'true')
@@ -688,13 +929,20 @@ start_web_terminal() {
     #   Direct in-container access (e.g. `docker exec`) is unaffected.
     # --ping-interval 30: WebSocket ping every 30s (default 300s) to prevent idle disconnects
     # --client-option reconnect=5: xterm.js auto-reconnect after 5 seconds on disconnect
+    #
+    # The command is `claude-tmux`, not the Claude launch command itself. ttyd
+    # spawns this once PER WebSocket connection, so running Claude directly meant
+    # every reconnect (and every extra tab) started a separate Claude and closing
+    # the tab killed the running one. Attaching to the shared tmux session instead
+    # makes a browser reconnect resume the SAME conversation — and makes the
+    # browser and an SSH login two views of one session.
     exec ttyd \
         --port "${port}" \
         --interface 127.0.0.1 \
         --writable \
         --ping-interval 30 \
         --client-option reconnect=5 \
-        bash -c "$launch_command"
+        /usr/local/bin/claude-tmux
 }
 
 # Run health check
@@ -716,9 +964,12 @@ main() {
     init_environment
     install_tools
     setup_session_picker
+    setup_tmux
     setup_persistent_packages
     setup_ha_mcp
     setup_onboarding_hint
+    # Before start_web_terminal, which ends in `exec ttyd` and never returns.
+    start_ssh_server
     start_web_terminal
 }
 

@@ -1,7 +1,7 @@
 ---
 name: "Claude Code for Home Assistant"
 description: "Community add-on (not affiliated with Anthropic or Home Assistant): the Claude Code CLI in a browser terminal, with persistent packages, image paste, and Home Assistant MCP auto-wiring."
-version: "5.0.5"
+version: "5.1.0"
 slug: "claude_terminal_unsnow"
 init: false
 
@@ -20,15 +20,27 @@ panel_icon: mdi:code-braces-box
 panel_title: "Claude Code"
 
 # Port configuration
-# Deliberately NO `ports:` block. This add-on is reachable ONLY through the
-# authenticated Home Assistant ingress panel above (ingress connects over the
-# internal Supervisor network via `ingress_port`, which needs no host mapping).
+#
+# The web terminal's own ports (7680/7681) are STILL deliberately absent here.
 # ttyd runs `--writable` with no credentials — a full root shell — and is bound to
 # loopback inside the container (run.sh), while the image-service enforces an
-# ingress-origin check. Omitting `ports:` means neither port can be mapped to the
-# host from the Network panel, so there is no way to expose that unauthenticated
-# root shell on the LAN. A power user who genuinely needs direct port access must
-# run a local fork and add their own `ports:` + authentication.
+# ingress-origin check. Because they are not listed, they cannot be mapped to the
+# host from the Network panel at all, so there is no way to expose that
+# unauthenticated root shell on the LAN. That rule has not changed.
+#
+# 2222/tcp is the opt-in SSH port added in 5.1.0 (see `enable_ssh` below). It is
+# a DIFFERENT proposition from ttyd: sshd authenticates, with public keys only.
+# The `null` default means the Supervisor does NOT publish it — the user must
+# assign a host port in the Network panel — so reaching it requires two separate
+# deliberate acts (enable the option AND map the port), on top of holding a
+# configured private key. See start_ssh_server in run.sh for the full posture.
+ports:
+  2222/tcp: null
+ports_description:
+  2222/tcp: >-
+    SSH into the Claude Code session (opt-in). Requires `enable_ssh: true` and at
+    least one key in `ssh_authorized_keys`; logins are public-key-only and land in
+    the same tmux session as the browser terminal. Leave unset to keep it closed.
 
 # Add-on configuration options
 # (use_persistent_claude / auto_update_claude_on_start removed: that layer
@@ -46,6 +58,16 @@ panel_title: "Claude Code"
 #     the credential — no token is needed. EMPTY = no-op: the add-on touches nothing,
 #     so an existing manual wiring is left exactly as-is.
 #
+# SSH access (5.1.0):
+#   enable_ssh — start an OpenSSH server inside the add-on (default false). Logins
+#     are public-key-only and drop straight into the same persistent tmux session
+#     the browser terminal uses, with Claude already running in it. Enabling this
+#     alone does nothing reachable: you must also map a host port to 2222/tcp in
+#     the Network panel. With no valid key configured, sshd refuses to start.
+#   ssh_authorized_keys — the PUBLIC keys allowed to log in (one per entry, e.g.
+#     the contents of your ~/.ssh/id_ed25519.pub). This is the only credential;
+#     password and keyboard-interactive auth are disabled outright.
+#
 # enable_onboarding_hint — master switch (default true). Seeds a short add-on-owned
 #   orientation note into the USER-level Claude memory ($HOME/.claude/CLAUDE.md, which
 #   Claude merges with your project /config/CLAUDE.md). It NEVER reads or writes your
@@ -57,6 +79,8 @@ options:
   enable_home_assistant_mcp: true
   home_assistant_mcp_url: ""
   enable_onboarding_hint: true
+  enable_ssh: false
+  ssh_authorized_keys: []
   persistent_apk_packages: []
   persistent_pip_packages: []
 
@@ -66,6 +90,9 @@ schema:
   enable_home_assistant_mcp: bool?
   home_assistant_mcp_url: str?
   enable_onboarding_hint: bool?
+  enable_ssh: bool?
+  ssh_authorized_keys:
+    - str?
   persistent_apk_packages:
     - str?
   persistent_pip_packages:
