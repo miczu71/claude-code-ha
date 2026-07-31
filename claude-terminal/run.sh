@@ -282,9 +282,14 @@ setup_session_picker() {
 # session that outlives its clients, and the browser, SSH and `docker exec` all
 # attach to that same session. See scripts/claude-tmux.
 setup_tmux() {
+    # Fatal, not a warning: since 5.1.0 claude-tmux is the ONLY thing ttyd execs
+    # and the only target of sshd's ForceCommand. Continuing without it would
+    # report a healthy boot while both doors are dead — ttyd failing to spawn its
+    # command on every connection and SSH logins dying instantly. A missing file
+    # here means a broken image, so fail the boot and let the Supervisor show it.
     if [ ! -f "/opt/scripts/claude-tmux" ]; then
-        bashio::log.warning "claude-tmux entry point not found; the terminal will run Claude without a persistent session"
-        return 0
+        bashio::log.error "claude-tmux entry point missing from the image (/opt/scripts/claude-tmux) — the terminal cannot start. Rebuild the add-on."
+        exit 1
     fi
 
     if ! cp /opt/scripts/claude-tmux /usr/local/bin/claude-tmux; then
@@ -301,6 +306,35 @@ setup_tmux() {
     chmod 755 /etc/claude-terminal
     get_claude_launch_command > /etc/claude-terminal/launch-command
     chmod 644 /etc/claude-terminal/launch-command
+
+    # Carry the Supervisor credential across sshd's environment sanitisation.
+    # run.sh runs under `with-contenv`, so it holds SUPERVISOR_TOKEN, and ttyd
+    # inherited it — which is why `ha core check/restart/info` always worked from
+    # the browser terminal. sshd deliberately builds a CLEAN environment for its
+    # sessions (PATH/HOME/USER/SHELL/TERM/SSH_* only), so without this an
+    # SSH-first login would create the shared session — and therefore the
+    # long-lived Claude process — with no token. Every later client of that
+    # session inherits the gap, including the browser, so `ha` would keep failing
+    # until the session is killed. Order-dependent breakage: ingress-first works,
+    # SSH-first doesn't.
+    #
+    # Root-only (600), not appended to the world-readable /etc/profile.d script,
+    # because this is a credential. Written empty-then-chmod-ed before any value
+    # lands in it. %q quoting survives any token shape.
+    local env_file="/etc/claude-terminal/session-env"
+    : > "$env_file"
+    chmod 600 "$env_file"
+    local var
+    for var in SUPERVISOR_TOKEN HASSIO_TOKEN; do
+        if [ -n "${!var:-}" ]; then
+            printf 'export %s=%q\n' "$var" "${!var}" >> "$env_file"
+        fi
+    done
+    if [ -s "$env_file" ]; then
+        bashio::log.info "  - Supervisor credential exported to the shared session"
+    else
+        bashio::log.warning "  - No SUPERVISOR_TOKEN in the environment; 'ha' commands will not work in the terminal"
+    fi
 
     # System-wide tmux config. Users can still add their own ~/.tmux.conf —
     # tmux reads /etc/tmux.conf first, then the user file, so these are defaults,
@@ -790,7 +824,10 @@ AuthenticationMethods publickey
 ForceCommand /usr/local/bin/claude-tmux
 
 # No tunnelling, no forwarding, no SFTP subsystem: this port exists to reach one
-# terminal session, not to become a general-purpose pivot into the HA network.
+# terminal session, not to become a network pivot. Note this does NOT restrict
+# what an authenticated user can run — claude-tmux passes \$SSH_ORIGINAL_COMMAND
+# through, so \`ssh <host> '<cmd>'\` (and legacy \`scp -O\`/rsync) still work. That
+# is deliberate and costs nothing: the login is root either way.
 AllowTcpForwarding no
 AllowAgentForwarding no
 AllowStreamLocalForwarding no
@@ -824,7 +861,38 @@ SSHD_EOF
         bashio::log.info "[sshd] $line"
     done &
 
+    # Confirm it is actually up before claiming so. `sshd -t` above validates the
+    # CONFIG FILE only — it cannot catch a runtime startup failure (missing
+    # privilege-separation dir, a bind failure, a rejected host key). Without this
+    # check the log would print "listening ... with N keys" and tell the user to
+    # go map a host port, immediately after the pipe above logged the real error;
+    # the user maps it, gets Connection refused, and the log says SSH is fine.
+    #
+    # Check the LISTENING SOCKET, not the process. Two traps here, both hit while
+    # testing this: the pipeline's `$!` is the logging while-loop, which outlives
+    # a dead sshd; and OpenSSH rewrites its argv to
+    # "sshd: /usr/sbin/sshd ... [listener] ...", so BusyBox's `pgrep -x sshd`
+    # matches nothing and reports a false death while SSH is working. The bound
+    # socket is unambiguous and is what the user actually cares about.
+    # Both conditions: a live sshd process AND the port bound. The process alone
+    # can be mid-exit; the socket alone cannot tell sshd apart from anything else
+    # holding the port (in which case sshd's own bind would have failed).
     sleep 1
+    local sshd_up=false
+    if pgrep sshd >/dev/null 2>&1; then
+        if command -v netstat >/dev/null 2>&1; then
+            if netstat -ltn 2>/dev/null | grep -qE "[:.]${port}[[:space:]]"; then
+                sshd_up=true
+            fi
+        else
+            sshd_up=true
+        fi
+    fi
+    if [ "$sshd_up" != "true" ]; then
+        bashio::log.error "SSH server: sshd is not listening on port ${port} — it exited during startup (see the [sshd] lines above for the reason). Continuing without SSH."
+        return 0
+    fi
+
     bashio::log.info "SSH server: listening on container port ${port} with ${key_count} authorized key(s)"
     bashio::log.info "SSH server: map a host port to ${port}/tcp in the add-on's Network panel, then: ssh -p <host-port> root@<home-assistant-ip>"
     local fingerprint

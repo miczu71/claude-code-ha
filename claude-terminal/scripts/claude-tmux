@@ -29,6 +29,15 @@ if [ -r /etc/profile.d/persistent-packages.sh ]; then
     . /etc/profile.d/persistent-packages.sh
 fi
 
+# The Supervisor credential, which the profile deliberately does not carry (it is
+# world-readable; this file is 600). Without it an SSH-first login would create
+# the shared session with no SUPERVISOR_TOKEN and `ha core check` would fail for
+# every client of that session thereafter. See setup_tmux in run.sh.
+if [ -r /etc/claude-terminal/session-env ]; then
+    # shellcheck source=/dev/null
+    . /etc/claude-terminal/session-env
+fi
+
 # Start where the user's Home Assistant config lives, same as the web terminal —
 # before the passthrough below, so `ssh <host> 'ls'` lists /config rather than
 # whatever directory sshd happened to drop the forced command in.
