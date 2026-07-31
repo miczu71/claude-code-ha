@@ -4,7 +4,13 @@ FROM ${BUILD_FROM}
 # Install packages in a single layer to minimize image size.
 # Node.js and npm kept for image-service dependency.
 # ttyd + tmux are baked here (not apk'd at runtime) so the web terminal starts
-# even when Alpine repos are unreachable, and tmux is always available.
+# even when Alpine repos are unreachable, and tmux is always available. tmux is
+# not optional garnish: since 5.1.0 it is the session substrate every front door
+# attaches to (see scripts/claude-tmux).
+# openssh-server backs the opt-in `enable_ssh` option — baked for the same
+# reason, so enabling SSH never depends on runtime repo access. openssh-client
+# comes along for outbound use (git over SSH) and brings ssh-keygen, which
+# run.sh needs to mint the persistent host key.
 RUN apk add --no-cache \
     nodejs \
     npm \
@@ -24,7 +30,9 @@ RUN apk add --no-cache \
     wget \
     tree \
     ttyd \
-    tmux
+    tmux \
+    openssh-server \
+    openssh-client
 
 # Install Claude Code CLI, pinned to a known-good version for reproducible
 # builds. install.sh passes its argument to `claude install <version>`

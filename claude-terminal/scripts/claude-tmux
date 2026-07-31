@@ -1,0 +1,89 @@
+#!/bin/bash
+#
+# claude-tmux — the single entry point into this add-on's shared Claude session.
+#
+# Every front door funnels through here so they all land in the SAME live tmux
+# session instead of each spawning its own throwaway shell:
+#
+#   * the browser terminal  — ttyd runs this instead of `bash -c <claude>`
+#   * SSH                   — sshd's ForceCommand (see start_ssh_server in run.sh)
+#   * `docker exec -it addon_<slug> claude-tmux` — the manual route
+#
+# The practical payoff: closing the browser tab (or dropping an SSH connection)
+# no longer kills Claude. The session keeps running inside the tmux server and
+# the next client re-attaches to it, mid-conversation, from any of the three
+# doors. Detach without killing anything with `Ctrl-b d`.
+
+set -uo pipefail
+
+SESSION_NAME="${CLAUDE_TMUX_SESSION:-claude}"
+LAUNCH_COMMAND_FILE="/etc/claude-terminal/launch-command"
+
+# Bring the persistent-package / Claude environment into scope. The three entry
+# points above start from very different environments — ttyd inherits run.sh's,
+# sshd deliberately sanitises its own away before running a session, and
+# `docker exec` gets the image defaults — so sourcing the profile here is what
+# makes all three behave identically (HOME=/data/home, XDG dirs, persist PATH).
+if [ -r /etc/profile.d/persistent-packages.sh ]; then
+    # shellcheck source=/dev/null
+    . /etc/profile.d/persistent-packages.sh
+fi
+
+# The Supervisor credential, which the profile deliberately does not carry (it is
+# world-readable; this file is 600). Without it an SSH-first login would create
+# the shared session with no SUPERVISOR_TOKEN and `ha core check` would fail for
+# every client of that session thereafter. See setup_tmux in run.sh.
+if [ -r /etc/claude-terminal/session-env ]; then
+    # shellcheck source=/dev/null
+    . /etc/claude-terminal/session-env
+fi
+
+# Start where the user's Home Assistant config lives, same as the web terminal —
+# before the passthrough below, so `ssh <host> 'ls'` lists /config rather than
+# whatever directory sshd happened to drop the forced command in.
+cd /config 2>/dev/null || cd "${HOME:-/root}" 2>/dev/null || cd / || exit 1
+
+# `ssh <host> <command>` must still run that command. sshd's ForceCommand routes
+# EVERY login through this script, so without this passthrough a forced tmux
+# attach would be the only thing SSH could ever do. Only a bare `ssh <host>`
+# (no command) falls through to the session below.
+if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
+    exec bash -lc "$SSH_ORIGINAL_COMMAND"
+fi
+
+# The Claude command to run when the session is CREATED (auto-launch vs. session
+# picker, plus any --dangerously-skip-permissions) is resolved once at boot by
+# run.sh and written here, so this script stays the only definition of "attach"
+# and run.sh stays the only definition of "what to launch".
+launch_command="claude"
+if [ -r "$LAUNCH_COMMAND_FILE" ]; then
+    launch_command="$(cat "$LAUNCH_COMMAND_FILE")"
+fi
+
+# tmux is baked into the image; if it somehow isn't there, a plain Claude
+# session still beats no terminal at all.
+if ! command -v tmux >/dev/null 2>&1; then
+    echo "claude-tmux: tmux not found — starting Claude without a persistent session." >&2
+    exec bash -lc "$launch_command"
+fi
+
+# tmux refuses to start on an unusable terminal. An SSH client that sends no TERM
+# at all is worth rescuing with a sane default; a client that explicitly says
+# "dumb" is telling the truth, and Claude's TUI would not render there either, so
+# that case falls through to the plain-session fallback below.
+if [ -z "${TERM:-}" ]; then
+    export TERM="xterm-256color"
+fi
+
+# `new-session -A` = attach if the session exists, create it otherwise. The
+# shell-command argument is used ONLY on creation, so a second client attaching
+# never starts a competing Claude process.
+#
+# Not exec'd: if tmux cannot start (unsuitable terminal, unwritable socket dir),
+# falling back to a plain session keeps the terminal usable instead of dropping
+# the connection with a cryptic tmux error. A normal session exit returns 0 and
+# ends this script, exactly as before.
+if ! tmux new-session -A -s "$SESSION_NAME" "$launch_command"; then
+    echo "claude-tmux: tmux could not start (TERM=${TERM:-unset}) — falling back to a plain Claude session." >&2
+    exec bash -lc "$launch_command"
+fi

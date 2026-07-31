@@ -51,10 +51,59 @@ The add-on works out of the box; every option below is optional.
 | `enable_home_assistant_mcp` | `true` | Auto-wire the ha-mcp server on boot (see [below](#pairs-with-the-home-assistant-mcp-server)). |
 | `home_assistant_mcp_url` | `""` | ha-mcp server URL from its add-on log. **Empty = no-op** (nothing is wired). |
 | `enable_onboarding_hint` | `true` | Seed a short orientation note into the add-on's own `~/.claude/CLAUDE.md` (never your `/config/CLAUDE.md`). |
+| `enable_ssh` | `false` | Run an SSH server that drops you into the running Claude session (see [below](#ssh-access-optional)). |
+| `ssh_authorized_keys` | `[]` | Public keys allowed to log in. The only credential — passwords are disabled. |
 | `persistent_apk_packages` | `[]` | System (apk) packages to auto-install on boot. |
 | `persistent_pip_packages` | `[]` | Python (pip) packages to auto-install on boot. |
 
-> **Ingress-only by design.** ttyd runs unauthenticated, so there is no host-port option: the `7680`/`7681` ports cannot be mapped to the host from the Network panel. Access is always through the authenticated ingress panel (`docker exec` still works for in-container access).
+> **Ingress-only by design.** ttyd runs unauthenticated, so there is no host-port option: the `7680`/`7681` ports cannot be mapped to the host from the Network panel. Access is always through the authenticated ingress panel (`docker exec` still works for in-container access). The optional SSH port below is a separate, key-authenticated door — it does not change this.
+
+## Your session survives disconnects
+
+The terminal runs inside a **tmux** session that outlives the thing you opened it
+with. Close the browser tab, lose Wi-Fi, or switch from your phone to your
+laptop, and you reattach to the same conversation, still running. `Ctrl-b d`
+detaches without killing anything.
+
+All three ways in land in that one session:
+
+```bash
+# the Claude Code sidebar panel (ingress)
+ssh -p <host-port> root@<home-assistant-ip>          # if enable_ssh is on
+docker exec -it addon_<slug> claude-tmux             # from a host shell
+```
+
+## SSH access (optional)
+
+If you live in a terminal, you can skip the browser entirely. SSH is **off by
+default** and opening it takes two deliberate steps plus a key you hold:
+
+1. Set `enable_ssh: true` and paste your **public** key (the contents of
+   `~/.ssh/id_ed25519.pub`, *not* the private key) into `ssh_authorized_keys`.
+2. In the add-on's **Network** panel, map a host port to `2222/tcp`. Until you
+   do, nothing is reachable — the port is declared but unmapped.
+
+Then `ssh -p <host-port> root@<home-assistant-ip>` puts you straight into the
+running Claude session. `ssh <host> '<command>'` still works for one-off commands.
+
+What it will and won't do:
+
+- **Public keys only.** Password, empty-password and keyboard-interactive auth
+  are disabled. A missing or malformed key list makes sshd refuse to start — a
+  misconfiguration can only mean "no SSH", never "open shell".
+- **No forwarding, tunnelling, or SFTP subsystem.** TCP/agent/stream forwarding
+  and X11 are refused, so the port cannot be turned into a tunnel into your
+  network, and `sftp`/modern `scp` will not connect. Running a command
+  (`ssh <host> '<cmd>'`, and so legacy `scp -O` or `rsync`) still works by
+  design — that passthrough is the point. It is not a privilege boundary
+  either way: you authenticated as root.
+- **Login is `root`,** because the container is a root shell by design and a
+  second user would be a cosmetic boundary rather than a real one. Treat opening
+  this port as equivalent to handing out shell access to your Home Assistant
+  configuration, and only expose it on a network you trust.
+- The host key is generated once and kept in `/data`, so it survives restarts and
+  rebuilds — a changed-host-key warning from your client means something is
+  actually wrong.
 
 ## Pairs with the Home Assistant MCP server
 

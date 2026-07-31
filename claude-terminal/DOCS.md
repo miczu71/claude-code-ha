@@ -47,6 +47,28 @@ The add-on offers several configuration options:
 - Configure APK and pip packages to auto-install on startup
 - Packages are stored in `/data/packages` and survive restarts
 
+### SSH Access
+- **Default**: `enable_ssh: false` (off)
+- Runs an SSH server inside the add-on that drops you straight into the running
+  Claude session, so you can work from your own terminal instead of the browser
+- Turning it on takes **two** deliberate steps:
+  1. Set `enable_ssh: true` and paste your **public** key (the contents of
+     `~/.ssh/id_ed25519.pub`) into `ssh_authorized_keys`
+  2. Map a host port to `2222/tcp` in the add-on's **Network** panel — until you
+     do, the port is declared but unmapped and nothing is reachable
+- Then: `ssh -p <host-port> root@<home-assistant-ip>`
+- **Public keys are the only credential.** Passwords, empty passwords and
+  keyboard-interactive auth are disabled; with no valid key the SSH server
+  refuses to start rather than falling back to anything weaker
+- Forwarding, tunnelling and the SFTP subsystem are disabled, so `sftp` and
+  modern `scp` (which speaks the SFTP protocol) will not connect. Arbitrary
+  commands *do* still run — `ssh <host> '<cmd>'`, and therefore legacy `scp -O`
+  and `rsync` — because that passthrough is what makes one-off commands work.
+  This is not a privilege boundary: you are authenticating as root either way
+- **⚠️ WARNING**: this exposes a root shell with full access to your Home
+  Assistant configuration on whatever network the mapped port reaches. It is
+  key-authenticated, but only open it on a network you trust
+
 ### Home Assistant operations (use the MCP server)
 This add-on is a shell + config editor. It carries only a `homeassistant`-level
 Supervisor token, so `ha core check`/`restart`/`info` work, but managing other
@@ -99,6 +121,20 @@ claude
 The terminal starts directly in your `/config` directory, giving you immediate
 access to all your Home Assistant configuration files. This makes it easy to get
 help with your configuration, create automations, and troubleshoot issues.
+
+### Your session survives disconnects
+
+The terminal runs inside a **tmux** session that keeps running when you leave.
+Close the browser tab, lose your connection, or switch from the browser to SSH,
+and you come back to the same conversation rather than a fresh one.
+
+- `Ctrl-b d` — detach (the session keeps running in the background)
+- `Ctrl-b c` / `Ctrl-b n` — new window / next window, if you want a shell
+  alongside Claude
+- `claude-tmux` — reattach from anywhere, including
+  `docker exec -it addon_<slug> claude-tmux`
+
+Exiting Claude *and* the session picker ends the session, as before.
 
 ## Features
 
