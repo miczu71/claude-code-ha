@@ -60,7 +60,11 @@ The add-on offers several configuration options:
 - **Public keys are the only credential.** Passwords, empty passwords and
   keyboard-interactive auth are disabled; with no valid key the SSH server
   refuses to start rather than falling back to anything weaker
-- Forwarding, tunnelling and SFTP/scp are disabled
+- Forwarding, tunnelling and the SFTP subsystem are disabled, so `sftp` and
+  modern `scp` (which speaks the SFTP protocol) will not connect. Arbitrary
+  commands *do* still run — `ssh <host> '<cmd>'`, and therefore legacy `scp -O`
+  and `rsync` — because that passthrough is what makes one-off commands work.
+  This is not a privilege boundary: you are authenticating as root either way
 - **⚠️ WARNING**: this exposes a root shell with full access to your Home
   Assistant configuration on whatever network the mapped port reaches. It is
   key-authenticated, but only open it on a network you trust

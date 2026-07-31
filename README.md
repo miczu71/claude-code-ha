@@ -91,8 +91,12 @@ What it will and won't do:
 - **Public keys only.** Password, empty-password and keyboard-interactive auth
   are disabled. A missing or malformed key list makes sshd refuse to start — a
   misconfiguration can only mean "no SSH", never "open shell".
-- **No forwarding, tunnelling, or SFTP/scp.** The port exists to reach one
-  terminal session, not to become a pivot into your network.
+- **No forwarding, tunnelling, or SFTP subsystem.** TCP/agent/stream forwarding
+  and X11 are refused, so the port cannot be turned into a tunnel into your
+  network, and `sftp`/modern `scp` will not connect. Running a command
+  (`ssh <host> '<cmd>'`, and so legacy `scp -O` or `rsync`) still works by
+  design — that passthrough is the point. It is not a privilege boundary
+  either way: you authenticated as root.
 - **Login is `root`,** because the container is a root shell by design and a
   second user would be a cosmetic boundary rather than a real one. Treat opening
   this port as equivalent to handing out shell access to your Home Assistant

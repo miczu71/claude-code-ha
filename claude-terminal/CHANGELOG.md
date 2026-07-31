@@ -26,7 +26,8 @@ All notable changes to this add-on are documented here. The format is based on
   - **Public keys are the only credential.** Password, empty-password and
     keyboard-interactive authentication are all disabled, so a missing or
     malformed key list means sshd *refuses to start* rather than falling back to
-    something weaker. Forwarding, tunnelling and SFTP are off as well.
+    something weaker. Forwarding, tunnelling and the SFTP subsystem are off as
+    well; running a command over SSH still works, by design.
 
   The host key is generated once and kept in `/data`, so it survives restarts and
   rebuilds and your client won't warn about a changed host key. `ssh <host>
