@@ -7,6 +7,23 @@ All notable changes to this add-on are documented here. The format is based on
 
 ## Unreleased
 
+## 5.1.1 — 2026-07-31
+
+### 🐛 Fixed
+- **Garbled characters in an SSH session.** Box-drawing characters, spinners and
+  other glyphs in Claude's interface were replaced with placeholder junk when
+  connecting over SSH. The browser terminal was never affected.
+
+  tmux decides whether a client can display UTF-8 purely from `LC_ALL`/`LC_CTYPE`/
+  `LANG`. sshd builds a clean environment for each session and an interactive
+  login starts the session directly rather than through a login shell, so nothing
+  set a locale and tmux fell back to assuming a non-UTF-8 terminal. `claude-tmux`
+  now sources the locale before starting the session.
+
+  Reconnecting is enough to pick this up once the add-on is updated — the flag is
+  per client, so a fresh attach renders correctly without disturbing a running
+  session.
+
 ## 5.1.0 — 2026-07-31
 
 ### ✨ Added
