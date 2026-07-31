@@ -131,8 +131,22 @@ unchanged. No AI-attribution trailers (global hygiene).
 
 - **Base image must export `statx`.** Don't drop `build.yaml` below Alpine 3.21
   to chase a smaller image — you'll reintroduce the launch crash.
-- **`ttyd` and `tmux` are baked in the Dockerfile**, not apk'd at runtime, so the
-  terminal still starts when Alpine repos are unreachable. Keep them baked.
+- **`ttyd`, `tmux` and `openssh-server` are baked in the Dockerfile**, not apk'd
+  at runtime, so the terminal (and SSH) still start when Alpine repos are
+  unreachable. Keep them baked.
+- **tmux is the session substrate, not a convenience** (5.1.0). Every front door —
+  ttyd, sshd's `ForceCommand`, `docker exec` — goes through
+  `scripts/claude-tmux` and attaches to one long-lived session. Don't "simplify"
+  ttyd back to running the Claude command directly: it spawns per WebSocket
+  connection, so that regresses to a new Claude per reconnect and a conversation
+  killed by closing the tab.
+- **ttyd's ports stay out of `config.yaml`'s `ports:` block.** ttyd is an
+  unauthenticated writable root shell; leaving `7680`/`7681` unlisted is what
+  makes it physically unmappable from the Network panel. The `2222/tcp` SSH entry
+  added in 5.1.0 is not a precedent for listing them — it is a *separate*,
+  key-authenticated door, declared `null` so it stays unmapped until the user
+  acts. Any change here must keep sshd fail-closed: no key, no sshd, and never a
+  password fallback (see `start_ssh_server` in `run.sh`).
 - **Reading a list option from `bashio`:** `bashio::config 'some_list'` already
   expands a list into newline-separated raw values. Do **not** pipe it back
   through `jq -r '.[]'` — that double-parses non-JSON and aborts with
@@ -175,6 +189,16 @@ podman logs -f cc-test
 podman stop cc-test && podman rm cc-test
 
 hadolint ./claude-terminal/Dockerfile
+```
+
+**Testing anything option-driven locally:** outside HA there is no Supervisor
+API, so `bashio::config` fails and every option falls back to its default — a
+local run can never exercise `enable_ssh`, the ha-mcp wiring, or the package
+auto-install by editing `/data/options.json` alone. To test one of those, stub
+the lookup and source just the function under test:
+
+```bash
+docker exec cc-test bash -c 'sed -n "/^start_ssh_server() {/,/^}$/p" /run.sh > /tmp/f.sh; source /usr/lib/bashio/bashio.sh; bashio::config() { jq -r --arg k "$1" ".[\$k] | if type==\"array\" then .[] else . end" /data/options.json; }; source /tmp/f.sh; start_ssh_server'
 ```
 
 ## CI & automation
