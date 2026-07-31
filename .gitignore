@@ -37,3 +37,23 @@ Thumbs.db
 
 # Local test-mount dir (run-addon mounts ./config -> /config); not part of the add-on
 /config/
+
+# Key material — never commit, in any form.
+# The add-on's `enable_ssh` option (5.1.0) means keys get handled around this
+# repo: generating a throwaway pair to test a login, copying a public key to
+# paste into the add-on options, mounting a /data with a generated host key.
+# These patterns exist so a stray test key cannot become a commit. Nothing
+# tracked matches them, so they only ever catch new files.
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+id_*.pub
+authorized_keys
+known_hosts
+ssh_host_*
+*.pem
+*.key
+*.p12
+*.pfx
+*.ppk
