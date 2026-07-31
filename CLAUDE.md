@@ -149,6 +149,13 @@ unchanged. No AI-attribution trailers (global hygiene).
   a session needs goes in `/etc/profile.d/persistent-packages.sh` (non-secret) or
   `/etc/claude-terminal/session-env` (600, credentials), both sourced by
   `claude-tmux`. Don't put a credential in the profile script — it is 644.
+  **`/etc/profile.d` is not sourced for you on the interactive SSH path**:
+  `claude-tmux` execs tmux directly, and only a *login* shell reads that
+  directory — which is why `ssh <host> <command>` (via `bash -lc`) can look fine
+  while an interactive login is broken. Anything from there that a session needs
+  must be sourced explicitly by `claude-tmux`. This has bitten twice:
+  `SUPERVISOR_TOKEN` (5.1.0) and the UTF-8 locale (5.1.1, garbled TUI glyphs
+  because tmux reads `LC_ALL`/`LC_CTYPE`/`LANG` and found none).
 - **ttyd's ports stay out of `config.yaml`'s `ports:` block.** ttyd is an
   unauthenticated writable root shell; leaving `7680`/`7681` unlisted is what
   makes it physically unmappable from the Network panel. The `2222/tcp` SSH entry

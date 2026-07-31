@@ -38,6 +38,30 @@ if [ -r /etc/claude-terminal/session-env ]; then
     . /etc/claude-terminal/session-env
 fi
 
+# A UTF-8 locale. tmux decides a client's UTF-8 capability solely from
+# LC_ALL/LC_CTYPE/LANG; with none of them set it assumes a non-UTF-8 terminal and
+# replaces every box-drawing character, spinner and glyph in Claude's TUI with
+# placeholder junk.
+#
+# The base image exports LANG as a Docker ENV, so ttyd — which inherits run.sh's
+# environment — was always fine, and so is `ssh <host> <command>`, because that
+# path execs `bash -lc` and a LOGIN shell sources /etc/profile.d itself. The gap
+# is the interactive SSH login: sshd builds a clean environment per session, and
+# this script execs tmux DIRECTLY, so nothing ever sourced the locale. Same class
+# as the SUPERVISOR_TOKEN gap above — a front door carries nothing by default.
+#
+# Sourcing the base image's own script rather than hardcoding a value keeps it
+# authoritative; it is written `${LANG:-C.UTF-8}`, so it is idempotent and will
+# not override a locale that is already set. The fallback covers the file being
+# absent in some future base image.
+if [ -r /etc/profile.d/20locale.sh ]; then
+    # shellcheck source=/dev/null
+    . /etc/profile.d/20locale.sh
+fi
+: "${LANG:=C.UTF-8}"
+: "${CHARSET:=UTF-8}"
+export LANG CHARSET
+
 # Start where the user's Home Assistant config lives, same as the web terminal —
 # before the passthrough below, so `ssh <host> 'ls'` lists /config rather than
 # whatever directory sshd happened to drop the forced command in.
