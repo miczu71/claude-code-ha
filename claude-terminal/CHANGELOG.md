@@ -7,6 +7,59 @@ All notable changes to this add-on are documented here. The format is based on
 
 ## Unreleased
 
+## 5.1.0 — 2026-07-31
+
+### ✨ Added
+- **SSH access, opt-in** (`enable_ssh`, `ssh_authorized_keys`). The add-on can now
+  run its own OpenSSH server and drop you straight into the running Claude
+  session — no more hopping through another add-on and `docker exec`:
+
+  ```bash
+  ssh -p <host-port> root@<home-assistant-ip>
+  ```
+
+  It is closed by three independent locks and opening it takes two deliberate
+  acts plus a private key:
+  - `enable_ssh` defaults to `false` — no sshd process at all.
+  - `2222/tcp` is declared but **unmapped** by default, so nothing is reachable
+    until you assign a host port in the add-on's **Network** panel.
+  - **Public keys are the only credential.** Password, empty-password and
+    keyboard-interactive authentication are all disabled, so a missing or
+    malformed key list means sshd *refuses to start* rather than falling back to
+    something weaker. Forwarding, tunnelling and SFTP are off as well.
+
+  The host key is generated once and kept in `/data`, so it survives restarts and
+  rebuilds and your client won't warn about a changed host key. `ssh <host>
+  <command>` still works for one-off commands.
+- **`claude-tmux`** — one entry point shared by the browser terminal, SSH and
+  `docker exec -it addon_<slug> claude-tmux`, so all three attach to the *same*
+  session.
+
+### ⬆️ Changed
+- **The terminal now runs inside tmux, and your session survives disconnects.**
+  Previously ttyd started a fresh Claude for every WebSocket connection, so
+  closing the browser tab killed the running conversation and reconnecting began
+  a new one. The terminal now attaches to one long-lived tmux session that
+  outlives its clients: close the tab, lose Wi-Fi, or switch from the browser to
+  SSH, and you come back to the same conversation, mid-flight. `Ctrl-b d`
+  detaches without killing anything.
+- The bundled `tmux` is now load-bearing rather than merely available, and
+  `openssh-server`/`openssh-client` are baked into the image alongside it, so
+  neither depends on Alpine repositories being reachable at runtime.
+
+### 🔒 Security
+- The web terminal's own ports (`7680`/`7681`) remain **unlistable and
+  unmappable**, exactly as in 5.0.0 — ttyd is an unauthenticated writable root
+  shell and nothing here changes that. The new port is a separate,
+  key-authenticated door; see `start_ssh_server` in `run.sh` for the full
+  rationale.
+- SSH logins are `root` (the container has no privilege boundary to protect
+  inside it) restricted to `prohibit-password`, `MaxAuthTries 3`, a 30-second
+  login grace period, and no forwarding of any kind.
+- Entries in `ssh_authorized_keys` must begin with a public-key type, which
+  rejects pasted private keys and blocks `command=`-style `authorized_keys`
+  options from being smuggled in through add-on configuration.
+
 ## 5.0.5 — 2026-07-27
 
 ### ⬆️ Changed
