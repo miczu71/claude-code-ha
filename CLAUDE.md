@@ -140,6 +140,15 @@ unchanged. No AI-attribution trailers (global hygiene).
   ttyd back to running the Claude command directly: it spawns per WebSocket
   connection, so that regresses to a new Claude per reconnect and a conversation
   killed by closing the tab.
+- **A new front door must carry the session environment.** ttyd inherits run.sh's
+  environment (it runs under `with-contenv`, so `SUPERVISOR_TOKEN` is present and
+  `ha core check` works); **sshd deliberately does not** — it builds a clean
+  environment per session. Because the tmux session is *shared*, whichever door
+  creates it fixes the environment for every later client, so a gap shows up as
+  order-dependent breakage that only reproduces when SSH connects first. Anything
+  a session needs goes in `/etc/profile.d/persistent-packages.sh` (non-secret) or
+  `/etc/claude-terminal/session-env` (600, credentials), both sourced by
+  `claude-tmux`. Don't put a credential in the profile script — it is 644.
 - **ttyd's ports stay out of `config.yaml`'s `ports:` block.** ttyd is an
   unauthenticated writable root shell; leaving `7680`/`7681` unlisted is what
   makes it physically unmappable from the Network panel. The `2222/tcp` SSH entry
