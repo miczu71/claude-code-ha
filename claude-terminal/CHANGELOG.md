@@ -7,6 +7,32 @@ All notable changes to this add-on are documented here. The format is based on
 
 ## Unreleased
 
+## 5.1.3 — 2026-08-02
+
+### 🐛 Fixed
+- **Scrolling works again — this time in the browser *and* over SSH.** The 5.1.2
+  fix turned tmux's mouse support on, but the wheel still did nothing on the
+  deployed add-on. Both access paths failed identically, which was the clue:
+  nothing in the browser stack (the terminal's own scroll handling, the ingress
+  iframe) exists in the SSH path, so neither could be the cause.
+
+  There are two nested alternate screens, and 5.1.2 only accounted for the outer
+  one. Claude Code draws on an alternate screen of its own *inside* the tmux
+  pane, and alternate-screen output never enters tmux's scrollback — so the
+  pane's history was permanently empty (`history_size=0` against a 50 000 line
+  limit). 5.1.2 routed the wheel into tmux's copy-mode, which therefore opened an
+  empty buffer and immediately closed again.
+
+  Claude requests mouse input precisely because it scrolls its own conversation,
+  so the wheel now goes to it. This restores tmux's default wheel binding, which
+  5.1.2 had overridden on the mistaken measurement that Claude does not ask for
+  the mouse — it does.
+
+### 📝 Changed
+- The status bar and the docs no longer offer `Ctrl-b [` as a way to scroll back.
+  It enters tmux's copy-mode, but for the reason above that shows only what is
+  already on screen. Use Claude's own PgUp/PgDn.
+
 ## 5.1.2 — 2026-08-02
 
 ### 🐛 Fixed
