@@ -6,7 +6,7 @@ A Home Assistant add-on that runs Anthropic's **Claude Code CLI** in a browser t
 
 > **Community add-on** — not affiliated with, endorsed by, or supported by Anthropic or the Home Assistant project / Open Home Foundation. "Claude" and "Claude Code" are trademarks of Anthropic, PBC; "Home Assistant" is a trademark of the Open Home Foundation. Claude Code itself is subject to Anthropic's terms.
 
-This is a maintained community fork of [ESJavadex/claude-code-ha](https://github.com/ESJavadex/claude-code-ha). **Why a fork?** It fixes the `statx` launch crash (Alpine 3.21 / musl 1.2.5), repairs package persistence, and auto-wires Claude to the Home Assistant MCP server out of the box — full rationale in [About this fork](#about-this-fork).
+This is a maintained community fork of [ESJavadex/claude-code-ha](https://github.com/ESJavadex/claude-code-ha). **Why a fork?** It fixes the `statx` launch crash (Alpine 3.21 / musl 1.2.5), repairs package persistence, auto-wires Claude to the Home Assistant MCP server out of the box, and keeps your session alive in **tmux** — reachable from the sidebar or over optional **SSH**. Full rationale in [About this fork](#about-this-fork).
 
 ---
 
@@ -67,11 +67,14 @@ detaches without killing anything.
 
 All three ways in land in that one session:
 
-```bash
-# the Claude Code sidebar panel (ingress)
-ssh -p <host-port> root@<home-assistant-ip>          # if enable_ssh is on
-docker exec -it addon_<slug> claude-tmux             # from a host shell
-```
+- **The Claude Code sidebar panel** (ingress) — the normal route, no setup
+- `ssh -p <host-port> root@<home-assistant-ip>` — if [`enable_ssh`](#ssh-access-optional) is on
+- `docker exec -it addon_<slug> claude-tmux` — from a host shell
+
+Scrolling back through the conversation is Claude's job, not tmux's — use the
+mouse wheel, or Claude's own PgUp/PgDn. tmux stays out of the way here by
+design: Claude draws on an alternate screen, so its output never reaches tmux's
+scrollback and `Ctrl-b [` copy-mode has no history to show.
 
 ## SSH access (optional)
 
@@ -129,6 +132,8 @@ You don't have to wire the MCP server by hand. Install the **Home Assistant MCP 
 - **Image paste** — paste (Ctrl+V), drag-drop, or upload images for Claude (JPEG/PNG/GIF/WebP/SVG, 10 MB limit); lightweight service (~10 MB RAM, ARM-friendly); stored in `/data/images/`.
 - **Pinned, baked toolchain** — Claude, `ttyd`, and `tmux` are baked into the image, so the terminal starts even when Alpine repos are unreachable.
 - **Persistent auth & config** — OAuth credentials and settings live under `/data`, preserved across restarts and rebuilds.
+- **A session that outlives the tab** — Claude runs in a **tmux** session, so closing the browser, losing Wi-Fi, or moving between devices reattaches to the same conversation instead of starting over.
+- **Optional SSH** — key-authenticated, off by default, dropping you into that same session from your own terminal (see [SSH access](#ssh-access-optional)).
 - **Ingress-only by default** — served through the authenticated HA panel; no open host port.
 
 ## About this fork
@@ -142,13 +147,22 @@ Maintained by [unsnow-iac](https://github.com/unsnow-iac) on the `main` branch o
 | **`persist-install` rewritten** | `apk info -L` lists paths *without* a leading slash, so the old `== /usr/bin/*` test never matched — the script reported success but copied nothing, so packages vanished on container recreation. Now normalises paths and resolves real deps via `ldd`. |
 | **Removed the `persistent_claude` layer** | It chased an obsolete `cli.js` path and `npm install`-ed `@latest` into `/data/npm`, fighting the baked-binary model. The launcher is now force-linked to the baked binary each boot, so a stray `claude update` self-heals on restart. |
 
+Beyond those repairs it adds a **persistent tmux session** (5.1.0) so the conversation survives a closed tab or a switch between devices, **optional key-only SSH** into that same session, **ha-mcp auto-wiring**, and a deliberately **least-privilege** Supervisor token (`hassio_role: homeassistant`, not `manager` — see [above](#pairs-with-the-home-assistant-mcp-server)).
+
 ### Updating Claude Code
 
-In-container self-update is disabled by design. To ship a new Claude version:
+In-container self-update is disabled by design — the Claude binary is baked into the image, so a new version ships as a new add-on version.
+
+**This is automated.** Every Monday a workflow compares the pinned `ARG CLAUDE_VERSION` against the latest published Claude Code release and, if they differ, opens a pull request that bumps the Dockerfile, the add-on version, the `build.yaml` label, and the changelog. Nothing changes without a PR. Merging it is the release: CI tags the new version and publishes a GitHub Release from the changelog automatically.
+
+As a user, all that reaches you is an **Update** button on the add-on in Home Assistant.
+
+To do it by hand (or to ship any other change):
 
 1. Bump `ARG CLAUDE_VERSION` in `claude-terminal/Dockerfile`.
-2. Bump `version:` in `claude-terminal/config.yaml` and the label in `claude-terminal/build.yaml`.
-3. Commit, push to `main`, then **Update**/**Rebuild** the add-on in Home Assistant.
+2. Bump `version:` in `claude-terminal/config.yaml` **and** the matching label in `claude-terminal/build.yaml` — CI fails if the two drift apart.
+3. Add a dated section to `claude-terminal/CHANGELOG.md`; it becomes the release notes.
+4. Open a PR, let CI run, and merge. Don't tag by hand — merging the bump does it.
 
 The add-on builds on-device (no prebuilt image), so the rebuild picks up the new base + pinned Claude. `/data` (auth, config, packages) is preserved across rebuilds.
 
@@ -159,6 +173,9 @@ The add-on builds on-device (no prebuilt image), so the rebuild picks up the new
 ## Support
 
 Questions or issues? Please open an issue in this repository. For more detail, see the [add-on documentation](claude-terminal/DOCS.md).
+
+- Contributing (dev shell, what CI checks, commit/release conventions): [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Security issues — please don't open a public issue:** [SECURITY.md](SECURITY.md)
 
 ## License
 
