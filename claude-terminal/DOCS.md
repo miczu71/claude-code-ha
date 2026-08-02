@@ -128,6 +128,13 @@ The terminal runs inside a **tmux** session that keeps running when you leave.
 Close the browser tab, lose your connection, or switch from the browser to SSH,
 and you come back to the same conversation rather than a fresh one.
 
+- **Mouse wheel** — scroll back through the conversation. Claude handles this
+  itself, so use its own keyboard shortcuts (PgUp/PgDn) rather than tmux's.
+  `Ctrl-b [` enters tmux's copy-mode, but Claude draws on an alternate screen
+  whose output never reaches tmux's scrollback, so copy-mode shows only what is
+  already on screen — it is not a way to look further back
+- **Shift+drag** — select text for your own clipboard. On macOS hold **Option**
+  instead. A plain drag belongs to the terminal session, not the browser
 - `Ctrl-b d` — detach (the session keeps running in the background)
 - `Ctrl-b c` / `Ctrl-b n` — new window / next window, if you want a shell
   alongside Claude

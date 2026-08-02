@@ -359,15 +359,57 @@ set -sg escape-time 10
 set -g focus-events on
 set -g history-limit 50000
 
-# Mouse is deliberately OFF: enabling it routes the scroll wheel into tmux
-# copy-mode and breaks click-drag text selection in the browser terminal.
+# Mouse ON — this is what makes the conversation scrollable (issue #32). Mouse
+# was off in 5.1.0/5.1.1 to protect the browser terminal's native wheel scrolling
+# and click-drag selection, but that reasoning died the moment tmux became the
+# substrate: tmux runs on the ALTERNATE screen, and xterm.js keeps no scrollback
+# there. Worse, with the alternate screen active it translates wheel events into
+# arrow keys, which land in Claude's prompt and cycle input history. So the real
+# choice is not "browser scrolling vs. copy-mode" but "no scrolling at all vs.
+# copy-mode". Selection survives as Shift+drag (Option+drag on macOS, enabled via
+# ttyd's macOptionClickForcesSelection — see the ttyd invocation below).
+set -g mouse on
 
-# Remind a tmux newcomer how to leave without killing the session.
+# The wheel must reach whatever actually holds the scrollback — and that is NOT
+# this pane. There are TWO nested alternate screens here, and 5.1.2 only accounted
+# for the outer one (tmux's, against the browser). Claude Code runs on an
+# alternate screen of its OWN, inside the pane. Alternate-screen output never
+# enters tmux's history, so the pane's scrollback stays permanently empty:
+#
+#     alternate_on=1   history_size=0   history_limit=50000
+#
+# A binding that routes the wheel into copy-mode therefore opens an empty buffer,
+# and `copy-mode -e` ("exit at bottom") finds itself already at the bottom and
+# closes again. The wheel looks dead — identically in the browser and over SSH,
+# which is the tell: no xterm.js or ingress iframe is involved in the SSH path.
+#
+# 5.1.2 dropped tmux's #{mouse_any_flag} test on the measurement that "Claude
+# 2.1.220 does not ask for mouse events". That measurement was wrong — live it
+# reports mouse_any_flag=1 with SGR encoding. It was most likely taken at a shell
+# prompt, where alternate_on=0 and ordinary output does accumulate in scrollback,
+# so the plumbing test passed under conditions real use never reaches.
+#
+# Claude asks for the mouse because it scrolls its own conversation. So restore
+# tmux's default: forward the wheel to the program when it asked for the mouse
+# (or when we are already in copy-mode), and fall back to copy-mode otherwise.
+#
+# Residual risk, deliberately accepted: CLAUDE_CODE_DISABLE_MOUSE and
+# CLAUDE_CODE_DISABLE_MOUSE_CLICKS exist, and the baked Claude version is bumped
+# weekly by automation. Should a future build stop requesting the mouse while
+# still using the alternate screen, the wheel falls back to copy-mode over an
+# empty buffer and scrolling dies again — same symptom as #32, different
+# mechanism. The check for that is `tmux display -p '#{mouse_any_flag}'`, not a
+# re-reading of this binding.
+bind -n WheelUpPane   if -F -t= "#{||:#{pane_in_mode},#{mouse_any_flag}}" "send -M" "copy-mode -et="
+bind -n WheelDownPane if -F -t= "#{||:#{pane_in_mode},#{mouse_any_flag}}" "send -M" "select-pane -t="
+
+# Remind a tmux newcomer how to scroll, and how to leave without killing the
+# session.
 set -g status-style "bg=colour236,fg=colour250"
 set -g status-left "#[bold] claude "
 set -g status-left-length 20
-set -g status-right "#[fg=colour244]Ctrl-b d to detach (session keeps running) "
-set -g status-right-length 60
+set -g status-right "#[fg=colour244]wheel to scroll | Ctrl-b d to detach "
+set -g status-right-length 80
 TMUX_EOF
     chmod 644 /etc/tmux.conf
 
@@ -1017,6 +1059,14 @@ start_web_terminal() {
     #   Direct in-container access (e.g. `docker exec`) is unaffected.
     # --ping-interval 30: WebSocket ping every 30s (default 300s) to prevent idle disconnects
     # --client-option reconnect=5: xterm.js auto-reconnect after 5 seconds on disconnect
+    # --client-option macOptionClickForcesSelection=true: keep a text-selection
+    #   gesture now that tmux owns the mouse (setup_tmux). xterm.js hands a drag
+    #   to the application unless a modifier says otherwise — Shift everywhere
+    #   else, but on macOS it is Option AND only when this option is set. Without
+    #   it, Mac users have no way to select terminal text for their own clipboard.
+    #   (macOptionIsMeta stays at its default false, so Option keeps no other job.)
+    #   ttyd JSON-parses `-t key=value`, so this arrives as a boolean, the same
+    #   way reconnect=5 arrives as a number.
     #
     # The command is `claude-tmux`, not the Claude launch command itself. ttyd
     # spawns this once PER WebSocket connection, so running Claude directly meant
@@ -1030,6 +1080,7 @@ start_web_terminal() {
         --writable \
         --ping-interval 30 \
         --client-option reconnect=5 \
+        --client-option macOptionClickForcesSelection=true \
         /usr/local/bin/claude-tmux
 }
 
