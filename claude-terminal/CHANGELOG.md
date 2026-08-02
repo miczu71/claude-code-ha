@@ -7,6 +7,30 @@ All notable changes to this add-on are documented here. The format is based on
 
 ## Unreleased
 
+## 5.1.2 — 2026-08-02
+
+### 🐛 Fixed
+- **The conversation can be scrolled again.** Since 5.1.0 the mouse wheel did
+  nothing to the chat history — worse, it acted on the input box instead, cycling
+  through previous prompts, and the arrow keys did the same. There was no way to
+  look back at anything that had scrolled off the screen.
+
+  The session moved into tmux in 5.1.0, and tmux draws on the terminal's
+  *alternate screen*, where the browser keeps no scrollback of its own. With the
+  alternate screen active the browser terminal also converts wheel movement into
+  arrow keys, which is why scrolling typed its way through the prompt history.
+  tmux's own mouse support was switched off at the time, so nothing was left to
+  scroll with.
+
+  Mouse support is now on, and the wheel scrolls the session's 50 000 lines of
+  history. Scroll back to the bottom and you return to the prompt automatically;
+  `Ctrl-b [` does the same from the keyboard, with `q` to leave. This applies to
+  SSH sessions as well as the browser terminal.
+
+  **Selecting text now needs a modifier.** Hold **Shift** while dragging — or
+  **Option** on macOS — to select terminal text for your own clipboard. A plain
+  drag now belongs to the terminal session.
+
 ## 5.1.1 — 2026-07-31
 
 ### 🐛 Fixed

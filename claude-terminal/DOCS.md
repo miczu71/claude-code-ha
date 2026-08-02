@@ -128,6 +128,11 @@ The terminal runs inside a **tmux** session that keeps running when you leave.
 Close the browser tab, lose your connection, or switch from the browser to SSH,
 and you come back to the same conversation rather than a fresh one.
 
+- **Mouse wheel** — scroll back through the conversation; scrolling to the bottom
+  returns you to the prompt. `Ctrl-b [` does the same from the keyboard (arrows
+  and PgUp/PgDn to move, `q` to leave)
+- **Shift+drag** — select text for your own clipboard. On macOS hold **Option**
+  instead. A plain drag belongs to the terminal session, not the browser
 - `Ctrl-b d` — detach (the session keeps running in the background)
 - `Ctrl-b c` / `Ctrl-b n` — new window / next window, if you want a shell
   alongside Claude
