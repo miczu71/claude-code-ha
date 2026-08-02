@@ -371,13 +371,17 @@ set -g history-limit 50000
 set -g mouse on
 
 # The wheel must always drive the pane's own scrollback. tmux's DEFAULT wheel
-# binding forwards the event to the program in the pane whenever that program has
-# asked for mouse events (#{mouse_any_flag}); Claude has no scroll region of its
-# own, so mouse mode alone would still leave the history unreachable. Dropping
-# that test keeps the wheel for scrollback while clicks and drags still pass
-# through to Claude when it wants them. `copy-mode -e` exits by itself once the
-# view is back at the bottom, so a tmux newcomer is never stranded in a mode they
-# cannot name.
+# binding hands the event to the program in the pane whenever that program has
+# asked for mouse events (#{mouse_any_flag}). Claude 2.1.220 does not ask —
+# measured, mouse_any_flag stays 0 through the theme picker and the main TUI — so
+# the default would work today. It carries CLAUDE_CODE_DISABLE_MOUSE and
+# CLAUDE_CODE_DISABLE_MOUSE_CLICKS, though, so a mouse mode exists and a future
+# build could switch it on; since the baked Claude version is bumped weekly by
+# automation, that would silently reintroduce #32 with nothing to connect it to.
+# Dropping the mouse_any_flag test costs two lines and removes that failure mode:
+# the wheel stays with the scrollback, and clicks and drags still reach Claude if
+# it ever wants them. `copy-mode -e` exits by itself once the view is back at the
+# bottom, so a tmux newcomer is never stranded in a mode they cannot name.
 bind -n WheelUpPane   if -F -t= "#{pane_in_mode}" "send -M" "copy-mode -et="
 bind -n WheelDownPane if -F -t= "#{pane_in_mode}" "send -M" "select-pane -t="
 
