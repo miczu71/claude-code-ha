@@ -47,7 +47,7 @@ RUN apk add --no-cache \
 # time (the same trust the npm fallback requires). There is no first-party
 # checksum published for the installer to verify against; if Anthropic ever
 # publishes one, verify it here. Do not widen this to an unpinned version.
-ARG CLAUDE_VERSION=2.1.220
+ARG CLAUDE_VERSION=2.1.226
 RUN (curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_VERSION}" \
     && ln -sf /root/.local/bin/claude /usr/local/bin/claude) \
     || npm install -g @anthropic-ai/claude-code@"${CLAUDE_VERSION}"
