@@ -8,7 +8,7 @@ A web-based terminal with the Claude Code CLI and persistent package management 
 
 > **Community add-on** — not affiliated with, endorsed by, or supported by Anthropic or the Home Assistant project / Open Home Foundation. "Claude" and "Claude Code" are trademarks of Anthropic, PBC; "Home Assistant" is a trademark of the Open Home Foundation.
 
-> **Fork Attribution:** Forked from [ESJavadex/claude-code-ha](https://github.com/ESJavadex/claude-code-ha) by Javier Santos, itself a fork of [heytcass/home-assistant-addons](https://github.com/heytcass/home-assistant-addons) by Tom Cassady. Maintained by [unsnow-iac](https://github.com/unsnow-iac).
+> **Fork Attribution:** Forked from [ESJavadex/claude-code-ha](https://github.com/ESJavadex/claude-code-ha) by Javier Santos, itself a fork of [heytcass/home-assistant-addons](https://github.com/heytcass/home-assistant-addons) by Tom Cassady, continuing the maintenance fork started by [unsnow-iac](https://github.com/unsnow-iac). Maintained by [miczu71](https://github.com/miczu71).
 
 ## What is this add-on?
 
@@ -94,7 +94,7 @@ with `hassio_role: manager` in `config.yaml` and accept the broader exposure.
 1. Add this repository to your Home Assistant add-on store:
    - Go to Settings → Add-ons → Add-on Store
    - Click the menu (⋮) and select Repositories
-   - Add: `https://github.com/unsnow-iac/claude-code-ha`
+   - Add: `https://github.com/miczu71/claude-code-ha`
 2. Install the Claude Code for Home Assistant add-on
 3. Start the add-on
 4. Open it from the **Claude Code** sidebar panel (ingress) — there is no
@@ -194,7 +194,8 @@ wiring) are summarised in the [repository README](../README.md#about-this-fork).
 
 **Original Creator:** Tom Cassady ([@heytcass](https://github.com/heytcass)) - Created the initial Claude Terminal add-on
 **Earlier Fork:** Javier Santos ([@esjavadex](https://github.com/esjavadex)) - Added persistent package management and enhancements
-**Current Maintainer:** [unsnow-iac](https://github.com/unsnow-iac) - Alpine 3.21/statx fix, persist-install repair, least-privilege token, ha-mcp wiring, public release
+**Earlier Maintainer:** [unsnow-iac](https://github.com/unsnow-iac) - Alpine 3.21/statx fix, persist-install repair, least-privilege token, ha-mcp wiring, public release
+**Current Maintainer:** [miczu71](https://github.com/miczu71)
 
 ## License
 

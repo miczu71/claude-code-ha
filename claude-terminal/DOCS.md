@@ -20,7 +20,7 @@ and persisting custom packages across restarts.
 1. Add this repository to your Home Assistant add-on store:
    - Go to Settings → Add-ons → Add-on Store
    - Click the menu (⋮) and select Repositories
-   - Add: `https://github.com/unsnow-iac/claude-code-ha`
+   - Add: `https://github.com/miczu71/claude-code-ha`
 2. Install the Claude Code for Home Assistant add-on
 3. Start the add-on
 4. Open it from the **Claude Code** sidebar panel (ingress) — this is the only
@@ -170,7 +170,8 @@ Exiting Claude *and* the session picker ends the session, as before.
 
 **Original Creator:** Tom Cassady ([@heytcass](https://github.com/heytcass))
 **Earlier Fork:** Javier Santos ([@esjavadex](https://github.com/esjavadex))
-**Current Maintainer:** [unsnow-iac](https://github.com/unsnow-iac)
+**Earlier Maintainer:** [unsnow-iac](https://github.com/unsnow-iac)
+**Current Maintainer:** [miczu71](https://github.com/miczu71)
 
 Forked from [ESJavadex/claude-code-ha](https://github.com/ESJavadex/claude-code-ha),
 itself a fork of [heytcass/home-assistant-addons](https://github.com/heytcass/home-assistant-addons).

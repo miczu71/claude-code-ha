@@ -35,7 +35,7 @@ Claude Code runs *inside* Home Assistant with your `/config` open — and, when 
 ## Install
 
 1. **Settings → Add-ons → Add-on Store**, open the **⋮** menu, choose **Repositories**.
-2. Add `https://github.com/unsnow-iac/claude-code-ha` and click **Add**.
+2. Add `https://github.com/miczu71/claude-code-ha` and click **Add**.
 3. Install **Claude Code for Home Assistant**, then **Start** it.
 4. Open it from the **Claude Code** sidebar panel (ingress — there's no host-port web UI by default).
 5. On first launch, follow the OAuth prompt to log in to your Anthropic account.
@@ -138,7 +138,7 @@ You don't have to wire the MCP server by hand. Install the **Home Assistant MCP 
 
 ## About this fork
 
-Maintained by [unsnow-iac](https://github.com/unsnow-iac) on the `main` branch of [`unsnow-iac/claude-code-ha`](https://github.com/unsnow-iac/claude-code-ha). It is a maintenance fork of [ESJavadex/claude-code-ha](https://github.com/ESJavadex/claude-code-ha) by Javier Santos, itself a fork of [heytcass/home-assistant-addons](https://github.com/heytcass/home-assistant-addons) by Tom Cassady. It exists to fix issues that broke the add-on in practice:
+Maintained by [miczu71](https://github.com/miczu71) on the `main` branch of [`miczu71/claude-code-ha`](https://github.com/miczu71/claude-code-ha). It is a maintenance fork of [ESJavadex/claude-code-ha](https://github.com/ESJavadex/claude-code-ha) by Javier Santos, itself a fork of [heytcass/home-assistant-addons](https://github.com/heytcass/home-assistant-addons) by Tom Cassady — continuing the maintenance fork started by [unsnow-iac](https://github.com/unsnow-iac), whose upstream repository disappeared in September 2026 (see [RESCUE.md](RESCUE.md)). It exists to fix issues that broke the add-on in practice:
 
 | Fixed | Why it mattered |
 |---|---|
@@ -179,4 +179,4 @@ Questions or issues? Please open an issue in this repository. For more detail, s
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Original Claude Terminal add-on by Tom Cassady ([@heytcass](https://github.com/heytcass)); persistent-package management and enhancements by Javier Santos ([@esjavadex](https://github.com/esjavadex)); this fork (Alpine 3.21/`statx` fix, `persist-install` repair, least-privilege + ha-mcp wiring, public release) by [unsnow-iac](https://github.com/unsnow-iac).
+MIT — see [LICENSE](LICENSE). Original Claude Terminal add-on by Tom Cassady ([@heytcass](https://github.com/heytcass)); persistent-package management and enhancements by Javier Santos ([@esjavadex](https://github.com/esjavadex)); Alpine 3.21/`statx` fix, `persist-install` repair, least-privilege + ha-mcp wiring, and the public release by [unsnow-iac](https://github.com/unsnow-iac); maintained since September 2026 by [miczu71](https://github.com/miczu71).

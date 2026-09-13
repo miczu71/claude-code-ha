@@ -6,7 +6,7 @@ Please report security issues **privately** — do not open a public issue for a
 vulnerability.
 
 Use GitHub's private vulnerability reporting: go to the
-[**Security** tab](https://github.com/unsnow-iac/claude-code-ha/security) →
+[**Security** tab](https://github.com/miczu71/claude-code-ha/security) →
 **Report a vulnerability**. This opens a private advisory visible only to the
 maintainer.
 
