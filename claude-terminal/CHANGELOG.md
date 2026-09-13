@@ -7,6 +7,19 @@ All notable changes to this add-on are documented here. The format is based on
 
 ## Unreleased
 
+## 5.1.6 — 2026-09-13
+
+### ⚠️ Ownership transfer
+
+- Upstream `unsnow-iac/claude-code-ha` disappeared (404, account still active
+  otherwise). This add-on is now maintained at
+  [`miczu71/claude-code-ha`](https://github.com/miczu71/claude-code-ha),
+  rescued from the Home Assistant Supervisor's own store clone — see
+  [`RESCUE.md`](../RESCUE.md) for how and what was recoverable.
+- No functional change in this release: `config.yaml`/`repository.yaml` URLs
+  updated to point here; this entry itself proves the update pipeline reaches
+  the running add-on from the new home.
+
 ## 5.1.5 — 2026-08-17
 
 ### ⬆️ Changed
