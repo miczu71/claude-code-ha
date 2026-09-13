@@ -153,9 +153,15 @@ Beyond those repairs it adds a **persistent tmux session** (5.1.0) so the conver
 
 In-container self-update is disabled by design — the Claude binary is baked into the image, so a new version ships as a new add-on version.
 
-**This is automated.** Every Monday a workflow compares the pinned `ARG CLAUDE_VERSION` against the latest published Claude Code release and, if they differ, opens a pull request that bumps the Dockerfile, the add-on version, the `build.yaml` label, and the changelog. Nothing changes without a PR. Merging it is the release: CI tags the new version and publishes a GitHub Release from the changelog automatically.
+**This is automated.** Every Monday at 06:00 UTC, [`claude-version-bump.yml`](.github/workflows/claude-version-bump.yml) compares the pinned `ARG CLAUDE_VERSION` against the latest published Claude Code release (via the npm registry, which mirrors the native build's version string) and, if they differ, opens a pull request that bumps the Dockerfile, the add-on version (PATCH), the `build.yaml` label, and cuts a CHANGELOG entry. Nothing changes without a PR — review the diff and merge.
+
+Merging is the release: [`auto-tag.yml`](.github/workflows/auto-tag.yml) tags `vX.Y.Z` on `main`, which triggers [`release.yml`](.github/workflows/release.yml) to publish the GitHub Release from the CHANGELOG automatically.
 
 As a user, all that reaches you is an **Update** button on the add-on in Home Assistant.
+
+> **One-time setup this depends on:** `auto-tag.yml` pushes the tag using a fine-grained PAT (repo secret `BUMP_PAT`, scoped to `Contents: Read/Write` + `Pull requests: Read/Write`) instead of the default `GITHUB_TOKEN`, because a token-pushed tag or PR doesn't trigger other workflows (GitHub's anti-recursion guard). Without `BUMP_PAT` set: the weekly PR still opens, but CI won't run on it automatically, and merging it will **fail loudly** in `auto-tag.yml` rather than silently skip the release. Add it at *Settings → Secrets and variables → Actions* before relying on this flow.
+
+**To check for an update right now** instead of waiting for Monday: **Actions → Check for Claude Code updates → Run workflow**.
 
 To do it by hand (or to ship any other change):
 
