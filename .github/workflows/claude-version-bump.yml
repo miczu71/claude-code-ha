@@ -7,7 +7,7 @@ name: Check for Claude Code updates
 # then rebuild the add-on from the HA store. Nothing is changed without a PR.
 on:
   schedule:
-    - cron: "0 6 * * 1" # Mondays, 06:00 UTC
+    - cron: "0 6 * * *" # Daily, 06:00 UTC
   workflow_dispatch: {} # ...and a manual "Run workflow" button
 
 # Needed so the workflow can push a branch and open a PR. This also requires the
