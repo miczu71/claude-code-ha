@@ -7,6 +7,12 @@ All notable changes to this add-on are documented here. The format is based on
 
 ## Unreleased
 
+### 🧹 Maintenance
+- Claude Code bump releases now include Anthropic's own release notes for every
+  bumped version (from the changelog behind https://code.claude.com/docs/en/changelog),
+  so the HA update dialog and the GitHub Release show what actually changed in the
+  CLI, not just the version numbers.
+
 ## 5.1.14 — 2026-10-02
 
 ### ⬆️ Changed

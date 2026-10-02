@@ -73,9 +73,14 @@ jobs:
           # 3) Cut the release in CHANGELOG.md (Keep a Changelog): sweep whatever
           #    is under "## Unreleased" into a new dated section led by the Claude
           #    bump note, and reopen a fresh "## Unreleased". Header-agnostic.
+          #    Anthropic's own release notes for every version in the bump close
+          #    the section, after the swept add-on changes so those aren't buried
+          #    (see upstream-notes.sh — it never fails, falling back to a link).
           today=$(date -u +%F)
+          upstream="$RUNNER_TEMP/upstream-notes.md"
+          .github/scripts/upstream-notes.sh "$CURRENT" "$LATEST" > "$upstream"
           tmp=$(mktemp)
-          awk -v ver="$newaddon" -v date="$today" -v cur="$CURRENT" -v lat="$LATEST" '
+          awk -v ver="$newaddon" -v date="$today" -v cur="$CURRENT" -v lat="$LATEST" -v notes="$upstream" '
             /^## Unreleased[[:space:]]*$/ && !done {
               print "## Unreleased"
               print ""
@@ -85,9 +90,20 @@ jobs:
               print "- Updated the bundled Claude Code CLI to `" lat "` (from `" cur "`). Delivered by"
               print "  rebuilding the add-on image — update/rebuild from the HA store to apply."
               done = 1
+              pending = 1
               next
             }
+            pending && /^## / { print_notes() }
             { print }
+            END { if (pending) { print ""; print_notes() } }
+            function print_notes() {
+              print "### 📝 Claude Code release notes"
+              print ""
+              while ((getline line < notes) > 0) print line
+              close(notes)
+              print ""
+              pending = 0
+            }
           ' claude-terminal/CHANGELOG.md > "$tmp"
           mv "$tmp" claude-terminal/CHANGELOG.md
 
@@ -117,7 +133,8 @@ jobs:
 
             - **Claude Code:** `${{ steps.versions.outputs.current }}` → `${{ steps.versions.outputs.latest }}`
             - **Add-on version:** PATCH bump to `${{ steps.bump.outputs.newaddon }}` (config.yaml + build.yaml label)
-            - **CHANGELOG:** `## Unreleased` cut to `## ${{ steps.bump.outputs.newaddon }}` (Keep a Changelog)
+            - **CHANGELOG:** `## Unreleased` cut to `## ${{ steps.bump.outputs.newaddon }}` (Keep a Changelog), with Anthropic's release notes for the bumped versions
+            - **What's new in Claude Code:** https://code.claude.com/docs/en/changelog
 
             ### To ship it
             1. Review the diff below.
